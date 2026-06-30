@@ -15,7 +15,6 @@
     "expo-dev-client": "~6.0.21",
     "expo-file-system": "~19.0.23",
     "expo-status-bar": "~3.0.9",
-    "nativewind": "4.2.1",
     "phosphor-react-native": "^3.0.6",
     "react": "19.1.0",
     "react-native": "0.81.5",
@@ -23,8 +22,7 @@
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-svg": "15.12.1",
-    "react-native-worklets": "0.5.1",
-    "tailwindcss": "3.4.17"
+    "react-native-worklets": "0.5.1"
   },
   "devDependencies": {
     "@babel/plugin-transform-class-properties": "^7.29.7",

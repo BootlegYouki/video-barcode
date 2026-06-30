@@ -5,15 +5,13 @@ interface RipplePressableProps extends PressableProps {
   rippleColor?: string;
   borderless?: boolean;
   style?: StyleProp<ViewStyle> | ((state: { pressed: boolean }) => StyleProp<ViewStyle>);
-  className?: string;
   children: React.ReactNode;
 }
 
 export const RipplePressable: React.FC<RipplePressableProps> = ({
-  rippleColor = 'rgba(103, 80, 164, 0.16)', // Subtle primary ripple
+  rippleColor = 'rgba(0, 0, 0, 0.1)',
   borderless = false,
   style,
-  className,
   children,
   ...props
 }) => {
@@ -23,9 +21,7 @@ export const RipplePressable: React.FC<RipplePressableProps> = ({
         color: rippleColor,
         borderless: borderless,
       }}
-      className={className}
       style={({ pressed }) => {
-        // Fallback opacity for iOS/Web if android_ripple is not supported
         const iosStyle = Platform.OS !== 'android' && pressed ? { opacity: 0.7 } : {};
         const baseStyle = typeof style === 'function' ? style({ pressed }) : style;
         return [baseStyle, iosStyle];

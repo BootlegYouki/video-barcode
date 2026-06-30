@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
-import { View, Text, FlatList } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { View, Text, StyleSheet, Animated, Dimensions } from 'react-native';
 import { RipplePressable } from '../components/RipplePressable';
-import { MD3Button } from '../components/MD3Button';
-import { Play, MagnifyingGlass, Camera, House, Clock, Gear } from 'phosphor-react-native';
+import { Camera, House, Clock, Gear, MagnifyingGlass } from 'phosphor-react-native';
+import { HomeScreen } from './HomeScreen';
+import { HistoryScreen } from './HistoryScreen';
+import { SettingsScreen } from './SettingsScreen';
+import { CameraScreen } from './CameraScreen';
 
 interface BarcodeRecord {
   id: string;
@@ -40,131 +43,160 @@ const MOCK_RECORDS: BarcodeRecord[] = [
   },
 ];
 
-export const MainScreenMock: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'home' | 'history' | 'settings'>('home');
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const TAB_WIDTH = SCREEN_WIDTH / 3;
+const INDICATOR_WIDTH = 64;
 
-  const renderItem = ({ item }: { item: BarcodeRecord }) => (
-    <View className="bg-white border border-[#E8DEF8] rounded-2xl p-4 mb-3 mx-4 shadow-sm overflow-hidden">
-      <RipplePressable onPress={() => {}} className="flex-row justify-between items-center">
-        <View className="flex-1">
-          <View className="flex-row items-center space-x-2 mb-1">
-            <Text className="font-mono text-sm font-bold text-[#1D192B] bg-[#E8DEF8] px-2 py-0.5 rounded">
-              {item.type}
-            </Text>
-            <Text className="font-sans text-xs text-[#49454F]">{item.timestamp}</Text>
-          </View>
-          <Text className="font-mono text-base font-medium text-[#6750A4] mb-1">{item.code}</Text>
-          <Text className="font-sans text-xs text-slate-400">{item.fileName} • {item.duration}</Text>
-        </View>
-        <View className="w-10 h-10 bg-[#F3EDF7] rounded-full justify-center items-center">
-          <Play size={20} color="#6750A4" weight="fill" />
-        </View>
-      </RipplePressable>
-    </View>
-  );
+const getIndicatorPosition = (index: number) => {
+  return index * TAB_WIDTH + (TAB_WIDTH - INDICATOR_WIDTH) / 2;
+};
+
+interface MainScreenMockProps {
+  onResetOnboarding?: () => void;
+}
+
+export const MainScreenMock: React.FC<MainScreenMockProps> = ({ onResetOnboarding }) => {
+  const [activeTab, setActiveTab] = useState<'home' | 'history' | 'settings'>('home');
+  const [showCamera, setShowCamera] = useState(false);
+  const [records, setRecords] = useState<BarcodeRecord[]>(MOCK_RECORDS);
+
+  const tabIndex = activeTab === 'home' ? 0 : activeTab === 'history' ? 1 : 2;
+  const animatedX = useRef(new Animated.Value(getIndicatorPosition(0))).current;
+
+  useEffect(() => {
+    Animated.spring(animatedX, {
+      toValue: getIndicatorPosition(tabIndex),
+      useNativeDriver: true,
+      tension: 68,
+      friction: 10,
+    }).start();
+  }, [tabIndex]);
+
+  const handleSaveSession = (barcode: string, videoUri: string, duration: string) => {
+    const type = barcode.startsWith('http') ? 'QR_CODE' : barcode.length > 10 ? 'EAN-13' : 'CODE-128';
+    
+    const timestampStr = 'Just now';
+    const cleanDateStr = new Date().getTime().toString();
+    const fileNameStr = `VID_${cleanDateStr}.mp4`;
+
+    const newRecord: BarcodeRecord = {
+      id: (records.length + 1).toString(),
+      code: barcode,
+      type: type,
+      timestamp: timestampStr,
+      duration: duration,
+      fileName: fileNameStr,
+    };
+
+    setRecords([newRecord, ...records]);
+    setShowCamera(false);
+    setActiveTab('home');
+  };
+
+  if (showCamera) {
+    return <CameraScreen onClose={() => setShowCamera(false)} onSaveSession={handleSaveSession} />;
+  }
 
   return (
-    <View className="flex-1 bg-[#FEF7FF]">
-      {/* Search Header */}
-      <View className="pt-14 pb-4 px-4 bg-white border-b border-[#E8DEF8]">
-        <View className="h-12 bg-[#F3EDF7] rounded-full px-4 flex-row items-center space-x-3">
-          <MagnifyingGlass size={20} color="#49454F" />
-          <Text className="font-sans text-[#49454F] text-base flex-1">Search scan history...</Text>
-          <View className="w-8 h-8 rounded-full bg-[#E8DEF8] justify-center items-center">
-            <Text className="font-bold text-xs text-[#1D192B]">U</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Main Tab Screen Switcher */}
-      {activeTab === 'home' ? (
-        <View className="flex-1 pt-6">
-          {/* Quick Stats Banner */}
-          <View className="bg-[#E8DEF8] rounded-3xl p-6 mx-4 mb-6">
-            <Text className="font-sans text-base font-bold text-[#1D192B] mb-1">Ready to scan & record</Text>
-            <Text className="font-sans text-xs text-[#49454F] mb-4">You have 3 items recorded today. Keep tracking your barcode inventory.</Text>
-            <View className="flex-row space-x-3">
-              <MD3Button title="Scan Now" onPress={() => {}} variant="filled" className="flex-1" />
-              <MD3Button title="View History" onPress={() => setActiveTab('history')} variant="tonal" className="flex-1" />
+    <View style={styles.container}>
+      {/* Dynamic Header */}
+      {activeTab !== 'settings' ? (
+        <View style={styles.searchHeader}>
+          <View style={styles.searchBar}>
+            <MagnifyingGlass size={22} color="#64748B" />
+            <Text style={styles.searchText}>Search scan history...</Text>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>U</Text>
             </View>
           </View>
-
-          {/* Quick List Header */}
-          <View className="flex-row justify-between items-center px-6 mb-3">
-            <Text className="font-sans text-sm font-bold text-[#1D192B]">Recent Scans</Text>
-            <RipplePressable onPress={() => setActiveTab('history')}>
-              <Text className="font-sans text-xs font-semibold text-[#6750A4]">See all</Text>
-            </RipplePressable>
-          </View>
-
-          <FlatList
-            data={MOCK_RECORDS.slice(0, 2)}
-            renderItem={renderItem}
-            keyExtractor={(item) => item.id}
-            scrollEnabled={false}
-          />
         </View>
-      ) : activeTab === 'history' ? (
-        <FlatList
-          data={MOCK_RECORDS}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingTop: 16, paddingBottom: 80 }}
-        />
       ) : (
-        <View className="flex-1 justify-center items-center px-6">
-          <Text className="font-sans text-lg font-bold text-[#1D192B] mb-2">Settings</Text>
-          <Text className="font-sans text-sm text-[#49454F] text-center mb-6">Configure barcode formats, local folders, and capture settings.</Text>
-          <MD3Button title="Configure Camera" onPress={() => {}} variant="outlined" className="w-full mb-3" />
-          <MD3Button title="Export Formats" onPress={() => {}} variant="outlined" className="w-full" />
+        <View style={styles.settingsHeader}>
+          <Text style={styles.settingsHeaderText}>Settings</Text>
         </View>
       )}
 
-      {/* Floating Action Button (FAB) */}
-      <View className="absolute bottom-24 right-6 overflow-hidden rounded-2xl shadow-lg bg-[#EADDFF]">
-        <RipplePressable
-          onPress={() => alert('Start scanning mode')}
-          rippleColor="rgba(103, 80, 164, 0.2)"
-          className="w-16 h-16 justify-center items-center"
-        >
-          <Camera size={26} color="#21005D" weight="bold" />
-        </RipplePressable>
-      </View>
+      {/* Screen Render Switcher */}
+      {activeTab === 'home' ? (
+        <HomeScreen
+          records={records}
+          onSeeAll={() => setActiveTab('history')}
+        />
+      ) : activeTab === 'history' ? (
+        <HistoryScreen records={records} />
+      ) : (
+        <SettingsScreen onResetOnboarding={onResetOnboarding} />
+      )}
 
-      {/* Bottom MD3 Navigation Bar */}
-      <View className="h-20 bg-white border-t border-[#E8DEF8] flex-row justify-around items-center pb-2">
+      {/* Floating Action Button (FAB) */}
+      {activeTab !== 'settings' && (
+        <View style={styles.fabContainer}>
+          <RipplePressable
+            onPress={() => setShowCamera(true)}
+            rippleColor="rgba(255, 255, 255, 0.2)"
+            style={styles.fab}
+          >
+            <Camera size={26} color="#FFFFFF" weight="bold" />
+          </RipplePressable>
+        </View>
+      )}
+
+      {/* Bottom Navigation Bar */}
+      <View style={styles.tabBar}>
+        {/* Sliding Active State Indicator Background */}
+        <Animated.View
+          style={[
+            styles.slidingIndicator,
+            {
+              transform: [{ translateX: animatedX }],
+            },
+          ]}
+        />
+
         <RipplePressable
           onPress={() => setActiveTab('home')}
-          className="items-center py-2 flex-1"
+          style={styles.tabItem}
         >
-          <View className={`px-5 py-1 rounded-full items-center justify-center mb-1 ${activeTab === 'home' ? 'bg-[#E8DEF8]' : ''}`}>
-            <House size={22} color={activeTab === 'home' ? '#1C1B1F' : '#49454F'} weight={activeTab === 'home' ? 'fill' : 'regular'} />
+          <View style={styles.tabIconBg}>
+            <House
+              size={24}
+              color={activeTab === 'home' ? '#000000' : '#94A3B8'}
+              weight={activeTab === 'home' ? 'fill' : 'regular'}
+            />
           </View>
-          <Text className={`font-sans text-xs ${activeTab === 'home' ? 'font-bold text-[#1C1B1F]' : 'text-[#49454F]'}`}>
+          <Text style={[styles.tabText, activeTab === 'home' && styles.tabActiveText]}>
             Home
           </Text>
         </RipplePressable>
 
         <RipplePressable
           onPress={() => setActiveTab('history')}
-          className="items-center py-2 flex-1"
+          style={styles.tabItem}
         >
-          <View className={`px-5 py-1 rounded-full items-center justify-center mb-1 ${activeTab === 'history' ? 'bg-[#E8DEF8]' : ''}`}>
-            <Clock size={22} color={activeTab === 'history' ? '#1C1B1F' : '#49454F'} weight={activeTab === 'history' ? 'fill' : 'regular'} />
+          <View style={styles.tabIconBg}>
+            <Clock
+              size={24}
+              color={activeTab === 'history' ? '#000000' : '#94A3B8'}
+              weight={activeTab === 'history' ? 'fill' : 'regular'}
+            />
           </View>
-          <Text className={`font-sans text-xs ${activeTab === 'history' ? 'font-bold text-[#1C1B1F]' : 'text-[#49454F]'}`}>
+          <Text style={[styles.tabText, activeTab === 'history' && styles.tabActiveText]}>
             History
           </Text>
         </RipplePressable>
 
         <RipplePressable
           onPress={() => setActiveTab('settings')}
-          className="items-center py-2 flex-1"
+          style={styles.tabItem}
         >
-          <View className={`px-5 py-1 rounded-full items-center justify-center mb-1 ${activeTab === 'settings' ? 'bg-[#E8DEF8]' : ''}`}>
-            <Gear size={22} color={activeTab === 'settings' ? '#1C1B1F' : '#49454F'} weight={activeTab === 'settings' ? 'fill' : 'regular'} />
+          <View style={styles.tabIconBg}>
+            <Gear
+              size={24}
+              color={activeTab === 'settings' ? '#000000' : '#94A3B8'}
+              weight={activeTab === 'settings' ? 'fill' : 'regular'}
+            />
           </View>
-          <Text className={`font-sans text-xs ${activeTab === 'settings' ? 'font-bold text-[#1C1B1F]' : 'text-[#49454F]'}`}>
+          <Text style={[styles.tabText, activeTab === 'settings' && styles.tabActiveText]}>
             Settings
           </Text>
         </RipplePressable>
@@ -172,3 +204,124 @@ export const MainScreenMock: React.FC = () => {
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  searchHeader: {
+    paddingTop: 56,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  searchBar: {
+    height: 56,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 28,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  searchText: {
+    fontFamily: 'sans-serif',
+    color: '#64748B',
+    fontSize: 18,
+    flex: 1,
+    marginLeft: 12,
+  },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#0F172A',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarText: {
+    fontWeight: 'bold',
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+  settingsHeader: {
+    paddingTop: 56,
+    paddingBottom: 24,
+    paddingHorizontal: 24,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  settingsHeaderText: {
+    fontFamily: 'sans-serif-medium',
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#000000',
+  },
+  fabContainer: {
+    position: 'absolute',
+    bottom: 112,
+    right: 24,
+    overflow: 'hidden',
+    borderRadius: 16,
+    backgroundColor: '#000000',
+    elevation: 4,
+    shadowColor: '#000000',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  fab: {
+    width: 64,
+    height: 64,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tabBar: {
+    height: 96,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingBottom: 24,
+  },
+  tabItem: {
+    alignItems: 'center',
+    paddingVertical: 8,
+    flex: 1,
+    zIndex: 2,
+  },
+  slidingIndicator: {
+    position: 'absolute',
+    top: 9,
+    left: 0,
+    width: INDICATOR_WIDTH,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+    zIndex: 1,
+  },
+  tabIconBg: {
+    width: INDICATOR_WIDTH,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  tabText: {
+    fontFamily: 'sans-serif',
+    fontSize: 14,
+    color: '#94A3B8',
+  },
+  tabActiveText: {
+    fontWeight: 'bold',
+    color: '#000000',
+  },
+});

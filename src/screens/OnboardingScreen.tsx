@@ -1,8 +1,7 @@
 import React, { useRef, useState } from 'react';
-import { View, Text, ScrollView, Dimensions, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
+import { View, Text, ScrollView, Dimensions, NativeSyntheticEvent, NativeScrollEvent, StyleSheet } from 'react-native';
 import { MD3Button } from '../components/MD3Button';
-import { RipplePressable } from '../components/RipplePressable';
-import { QrCode, VideoCamera, FloppyDisk } from 'phosphor-react-native';
+import { Barcode, VideoCamera, FloppyDisk, GoogleDriveLogo, Package } from 'phosphor-react-native';
 
 interface OnboardingScreenProps {
   onComplete: () => void;
@@ -23,7 +22,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
   };
 
   const handleNext = () => {
-    if (activeIndex < 2) {
+    if (activeIndex < 4) {
       scrollViewRef.current?.scrollTo({
         x: (activeIndex + 1) * SCREEN_WIDTH,
         animated: true,
@@ -34,22 +33,11 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
     }
   };
 
-  const handleSkip = () => {
-    onComplete();
-  };
-
   return (
-    <View className="flex-1 bg-[#FEF7FF] justify-between">
+    <View style={styles.container}>
       {/* Top Header */}
-      <View className="pt-14 pb-4 px-6 flex-row justify-between items-center">
-        <Text className="font-sans text-xs font-bold tracking-widest text-[#6750A4] uppercase">
-          Video Barcode
-        </Text>
-        {activeIndex < 2 && (
-          <RipplePressable onPress={handleSkip} className="px-3 py-1 rounded-full">
-            <Text className="font-sans text-sm font-semibold text-[#6750A4]">Skip</Text>
-          </RipplePressable>
-        )}
+      <View style={styles.header}>
+        <Text style={styles.headerText}>VIDEO BARCODE</Text>
       </View>
 
       {/* Slide Content Pager */}
@@ -58,80 +46,161 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        className="flex-1"
+        onMomentumScrollEnd={handleScroll}
+        style={styles.pager}
       >
-        {/* Step 1: Scan */}
-        <View style={{ width: SCREEN_WIDTH }} className="px-6 justify-center items-center">
-          {/* Card Mockup */}
-          <View className="w-full max-w-sm aspect-square bg-[#F3EDF7] rounded-3xl p-6 items-center justify-center border border-[#E8DEF8] shadow-sm mb-8">
-            <View className="w-32 h-32 rounded-full bg-[#E8DEF8] justify-center items-center">
-              <QrCode size={64} color="#6750A4" weight="bold" />
-            </View>
+        {/* Step 1: Welcome */}
+        <View style={{ width: SCREEN_WIDTH, ...styles.slide }}>
+          <View style={styles.iconContainer}>
+            <Package size={136} color="#000000" weight="bold" />
           </View>
-          <Text className="font-sans text-2xl font-bold text-[#1D192B] text-center mb-3">
-            Scan Barcodes
-          </Text>
-          <Text className="font-sans text-sm text-[#49454F] text-center max-w-xs leading-relaxed">
-            Position any barcode inside the scanner frame to auto-detect and read the code in real-time.
+          <Text style={styles.title}>Welcome</Text>
+          <Text style={styles.description}>
+            Verify and track your parcels seamlessly with automated video recording and barcode logging.
           </Text>
         </View>
 
-        {/* Step 2: Record */}
-        <View style={{ width: SCREEN_WIDTH }} className="px-6 justify-center items-center">
-          {/* Card Mockup */}
-          <View className="w-full max-w-sm aspect-square bg-[#F3EDF7] rounded-3xl p-6 items-center justify-center border border-[#E8DEF8] shadow-sm mb-8">
-            <View className="w-32 h-32 rounded-full bg-[#EADDFF] justify-center items-center">
-              <VideoCamera size={64} color="#21005D" weight="bold" />
-            </View>
+        {/* Step 2: Scan */}
+        <View style={{ width: SCREEN_WIDTH, ...styles.slide }}>
+          <View style={styles.iconContainer}>
+            <Barcode size={136} color="#000000" weight="bold" />
           </View>
-          <Text className="font-sans text-2xl font-bold text-[#1D192B] text-center mb-3">
-            Record Videos
-          </Text>
-          <Text className="font-sans text-sm text-[#49454F] text-center max-w-xs leading-relaxed">
-            Capture videos while detecting barcodes dynamically to keep timestamped visual logs of all scans.
+          <Text style={styles.title}>Scan Parcel</Text>
+          <Text style={styles.description}>
+            Scan the barcode of the parcel to identify and register it in the system.
           </Text>
         </View>
 
-        {/* Step 3: Save */}
-        <View style={{ width: SCREEN_WIDTH }} className="px-6 justify-center items-center">
-          {/* Card Mockup */}
-          <View className="w-full max-w-sm aspect-square bg-[#F3EDF7] rounded-3xl p-6 items-center justify-center border border-[#E8DEF8] shadow-sm mb-8">
-            <View className="w-32 h-32 rounded-full bg-[#E8F5E9] justify-center items-center">
-              <FloppyDisk size={64} color="#388E3C" weight="bold" />
-            </View>
+        {/* Step 3: Record */}
+        <View style={{ width: SCREEN_WIDTH, ...styles.slide }}>
+          <View style={styles.iconContainer}>
+            <VideoCamera size={136} color="#000000" weight="bold" />
           </View>
-          <Text className="font-sans text-2xl font-bold text-[#1D192B] text-center mb-3">
-            Save & Export
+          <Text style={styles.title}>Record Video</Text>
+          <Text style={styles.description}>
+            Once the barcode is scanned, the app automatically starts recording the handling process.
           </Text>
-          <Text className="font-sans text-sm text-[#49454F] text-center max-w-xs leading-relaxed">
-            Export scans, metadata logs, and cropped video sessions to local storage or share them instantly.
+        </View>
+
+        {/* Step 4: Save */}
+        <View style={{ width: SCREEN_WIDTH, ...styles.slide }}>
+          <View style={styles.iconContainer}>
+            <FloppyDisk size={136} color="#000000" weight="bold" />
+          </View>
+          <Text style={styles.title}>Save Video</Text>
+          <Text style={styles.description}>
+            After the recording is stopped, the video is saved and linked directly to the parcel's barcode.
+          </Text>
+        </View>
+
+        {/* Step 5: Google Drive Sync */}
+        <View style={{ width: SCREEN_WIDTH, ...styles.slide }}>
+          <View style={styles.iconContainer}>
+            <GoogleDriveLogo size={136} color="#000000" weight="bold" />
+          </View>
+          <Text style={styles.title}>Cloud Sync</Text>
+          <Text style={styles.description}>
+            Optionally connect your account to automatically upload and back up parcel videos to Google Drive.
           </Text>
         </View>
       </ScrollView>
 
-      {/* Bottom controls */}
-      <View className="pb-12 pt-4 px-6 flex-row justify-between items-center">
-        {/* Dot Indicators */}
-        <View className="flex-row space-x-2">
-          {[0, 1, 2].map((i) => (
-            <View
-              key={i}
-              className={`h-2.5 rounded-full transition-all duration-200 ${
-                activeIndex === i ? 'w-6 bg-[#6750A4]' : 'w-2.5 bg-[#E8DEF8]'
-              }`}
-            />
-          ))}
-        </View>
+      {/* Progress Dots */}
+      <View style={styles.dotsContainer}>
+        {[0, 1, 2, 3, 4].map((i) => (
+          <View
+            key={i}
+            style={[
+              styles.dot,
+              { backgroundColor: activeIndex === i ? '#000000' : '#E2E8F0' }
+            ]}
+          />
+        ))}
+      </View>
 
-        {/* Action Button */}
+      {/* Action Button */}
+      <View style={styles.footer}>
         <MD3Button
-          title={activeIndex === 2 ? 'Get Started' : 'Next'}
+          title={activeIndex === 4 ? 'Get Started' : 'Next'}
           onPress={handleNext}
           variant="filled"
+          size="large"
+          style={styles.button}
         />
       </View>
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'space-between',
+  },
+  header: {
+    paddingTop: 56,
+    paddingBottom: 16,
+    paddingHorizontal: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerText: {
+    fontFamily: 'sans-serif-medium',
+    fontSize: 14,
+    fontWeight: '500',
+    letterSpacing: 1,
+    color: '#000000',
+  },
+  pager: {
+    flex: 1,
+  },
+  slide: {
+    paddingHorizontal: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  iconContainer: {
+    height: 192,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  title: {
+    fontFamily: 'sans-serif-medium',
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#000000',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  description: {
+    fontFamily: 'sans-serif',
+    fontSize: 18,
+    color: '#475569',
+    textAlign: 'center',
+    maxWidth: 320,
+    lineHeight: 26,
+  },
+  dotsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginVertical: 24,
+  },
+  dot: {
+    height: 10,
+    width: 10,
+    marginHorizontal: 8,
+    borderRadius: 5,
+  },
+  footer: {
+    paddingBottom: 56,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+  },
+  button: {
+    width: '100%',
+    maxWidth: 320,
+  },
+});
