@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { RipplePressable } from '../components/RipplePressable';
-import { X } from 'phosphor-react-native';
+import { X, Check } from 'phosphor-react-native';
 
 interface CameraScreenProps {
   onClose: () => void;
@@ -11,6 +11,7 @@ interface CameraScreenProps {
 
 export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSession }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const isLandscape = screenWidth > screenHeight;
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [microphonePermission, requestMicrophonePermission] = useMicrophonePermissions();
 
@@ -19,7 +20,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
   const viewfinderHeight = Math.min(screenHeight * 0.35, 220);
   const laserLineWidth = viewfinderWidth - 48;
 
-  const [scanState, setScanState] = useState<'scanning' | 'recording' | 'saving'>('scanning');
+  const [scanState, setScanState] = useState<'scanning' | 'scanned_confirm' | 'recording' | 'saving'>('scanning');
   const [scannedBarcode, setScannedBarcode] = useState<string | null>(null);
   const [recordTimer, setRecordTimer] = useState(0);
 
@@ -87,9 +88,15 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
   }
 
   // Handle barcode scanned callback
-  const handleBarcodeScanned = async ({ data }: { data: string }) => {
+  const handleBarcodeScanned = ({ data }: { data: string }) => {
     if (scanState !== 'scanning') return;
     setScannedBarcode(data);
+    setScanState('scanned_confirm');
+  };
+
+  // Start recording manually after confirmation
+  const handleStartRecording = async () => {
+    if (!scannedBarcode) return;
     setScanState('recording');
 
     // Trigger video recording
@@ -104,7 +111,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
         const video = await recordingPromise;
         if (video && video.uri) {
           const durationStr = `0:${recordTimer.toString().padStart(2, '0')}s`;
-          onSaveSession(data, video.uri, durationStr);
+          onSaveSession(scannedBarcode, video.uri, durationStr);
         }
       } catch (error) {
         console.error('Failed to record video', error);
@@ -135,7 +142,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
       {/* Transparent UI Overlay */}
       <View style={[StyleSheet.absoluteFillObject, styles.overlay]}>
         {/* Header row */}
-        <View style={styles.header}>
+        <View style={[styles.header, isLandscape && styles.headerLandscape]}>
           <RipplePressable
             onPress={onClose}
             disabled={scanState === 'saving'}
@@ -166,6 +173,30 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
             <Text style={styles.instructionText}>
               Align barcode within target frame
             </Text>
+          </View>
+        ) : scanState === 'scanned_confirm' ? (
+          <View style={styles.targetContainer}>
+            <View style={styles.confirmCard}>
+              <Text style={styles.confirmBarcodeLabel}>SCANNED VALUE</Text>
+              <Text style={styles.confirmBarcodeText}>{scannedBarcode}</Text>
+              
+              <RipplePressable
+                onPress={handleStartRecording}
+                style={styles.startRecBtnInside}
+              >
+                <Text style={styles.startRecBtnTextInside}>START RECORDING</Text>
+              </RipplePressable>
+              
+              <RipplePressable
+                onPress={() => {
+                  setScannedBarcode(null);
+                  setScanState('scanning');
+                }}
+                style={styles.rescanBtnInside}
+              >
+                <Text style={styles.rescanBtnTextInside}>Rescan Barcode</Text>
+              </RipplePressable>
+            </View>
           </View>
         ) : scanState === 'recording' ? (
           <View style={styles.targetContainer}>
@@ -281,6 +312,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 32,
   },
+  headerLandscape: {
+    paddingTop: 12,
+  },
   closeBtn: {
     width: 44,
     height: 44,
@@ -375,6 +409,67 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 9999,
+  },
+  confirmCard: {
+    backgroundColor: 'rgba(30, 41, 59, 0.65)', // Dark slate semi-transparent fallback
+    padding: 24,
+    borderRadius: 24,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 320,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#000000',
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  confirmBarcodeLabel: {
+    fontFamily: 'sans-serif-medium',
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.65)',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  confirmBarcodeText: {
+    fontFamily: 'monospace',
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  startRecBtnInside: {
+    width: '100%',
+    height: 48,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    shadowColor: '#000000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  startRecBtnTextInside: {
+    fontFamily: 'sans-serif-medium',
+    fontSize: 14,
+    color: '#000000',
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  rescanBtnInside: {
+    paddingVertical: 8,
+  },
+  rescanBtnTextInside: {
+    fontFamily: 'sans-serif',
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.7)',
+    textDecorationLine: 'underline',
   },
   recordingCard: {
     backgroundColor: '#FFFFFF',
