@@ -175,32 +175,22 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
               Align barcode within target frame
             </Text>
           </View>
-        ) : scanState === 'scanned_confirm' ? (
+        {scanState === 'scanning' || scanState === 'scanned_confirm' ? (
           <View style={styles.targetContainer}>
-            <Animated.View
-              entering={ZoomIn.springify().damping(15).stiffness(120).mass(0.8)}
-              style={styles.confirmCard}
-            >
-              <Text style={styles.confirmBarcodeLabel}>SCANNED VALUE</Text>
-              <Text style={styles.confirmBarcodeText}>{scannedBarcode}</Text>
-              
-              <RipplePressable
-                onPress={handleStartRecording}
-                style={styles.startRecBtnInside}
-              >
-                <Text style={styles.startRecBtnTextInside}>START RECORDING</Text>
-              </RipplePressable>
-              
-              <RipplePressable
-                onPress={() => {
-                  setScannedBarcode(null);
-                  setScanState('scanning');
-                }}
-                style={styles.rescanBtnInside}
-              >
-                <Text style={styles.rescanBtnTextInside}>Rescan Barcode</Text>
-              </RipplePressable>
-            </Animated.View>
+            <View style={[styles.viewfinderContainer, { width: viewfinderWidth, height: viewfinderHeight }]}>
+              {/* Custom Corner Brackets */}
+              <View style={[styles.corner, styles.topLeft]} />
+              <View style={[styles.corner, styles.topRight]} />
+              <View style={[styles.corner, styles.bottomLeft]} />
+              <View style={[styles.corner, styles.bottomRight]} />
+              {/* Center laser scanning line */}
+              {scanState === 'scanning' && (
+                <View style={[styles.laserLine, { width: laserLineWidth }]} />
+              )}
+            </View>
+            <Text style={styles.instructionText}>
+              {scanState === 'scanning' ? 'Align barcode within target frame' : 'Barcode captured'}
+            </Text>
           </View>
         ) : scanState === 'recording' ? (
           <View style={styles.targetContainer}>
@@ -236,6 +226,37 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
               <View style={styles.stopSquare} />
               <Text style={styles.stopButtonText}>STOP RECORDING</Text>
             </RipplePressable>
+          ) : scanState === 'scanned_confirm' ? (
+            <Animated.View
+              entering={ZoomIn.springify().damping(15).stiffness(120).mass(0.8)}
+              style={styles.confirmCardCompressed}
+            >
+              <View style={styles.confirmCardRow}>
+                <View style={styles.confirmTextCol}>
+                  <Text style={styles.confirmBarcodeLabel}>SCANNED VALUE</Text>
+                  <Text style={styles.confirmBarcodeText} numberOfLines={1} ellipsizeMode="tail">
+                    {scannedBarcode}
+                  </Text>
+                </View>
+                <View style={styles.confirmActionsCol}>
+                  <RipplePressable
+                    onPress={() => {
+                      setScannedBarcode(null);
+                      setScanState('scanning');
+                    }}
+                    style={styles.rescanBtnCompressed}
+                  >
+                    <Text style={styles.rescanBtnTextCompressed}>RESCAN</Text>
+                  </RipplePressable>
+                  <RipplePressable
+                    onPress={handleStartRecording}
+                    style={styles.startRecBtnCompressed}
+                  >
+                    <Text style={styles.startRecBtnTextCompressed}>START</Text>
+                  </RipplePressable>
+                </View>
+              </View>
+            </Animated.View>
           ) : (
             <View style={{ height: 56 }} />
           )}
@@ -414,66 +435,80 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 9999,
   },
-  confirmCard: {
-    backgroundColor: 'rgba(30, 41, 59, 0.65)', // Dark slate semi-transparent fallback
-    padding: 24,
-    borderRadius: 24,
-    alignItems: 'center',
-    width: '100%',
-    maxWidth: 320,
+  confirmCardCompressed: {
+    backgroundColor: 'rgba(30, 41, 59, 0.75)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
-    overflow: 'hidden',
-    elevation: 4,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
     shadowColor: '#000000',
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
+  },
+  confirmCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  confirmTextCol: {
+    flex: 1,
+    marginRight: 16,
+  },
+  confirmActionsCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   confirmBarcodeLabel: {
     fontFamily: 'sans-serif-medium',
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.65)',
+    color: 'rgba(255, 255, 255, 0.5)',
     letterSpacing: 0.5,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   confirmBarcodeText: {
     fontFamily: 'monospace',
-    fontSize: 22,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#FFFFFF',
-    textAlign: 'center',
-    marginBottom: 12,
   },
-  startRecBtnInside: {
-    width: '100%',
-    height: 48,
+  startRecBtnCompressed: {
+    paddingHorizontal: 16,
+    height: 38,
     backgroundColor: '#FFFFFF',
-    borderRadius: 24,
+    borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
-    shadowColor: '#000000',
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    marginLeft: 8,
   },
-  startRecBtnTextInside: {
+  startRecBtnTextCompressed: {
     fontFamily: 'sans-serif-medium',
-    fontSize: 14,
+    fontSize: 12,
     color: '#000000',
     fontWeight: 'bold',
     letterSpacing: 0.5,
   },
-  rescanBtnInside: {
-    paddingVertical: 8,
+  rescanBtnCompressed: {
+    paddingHorizontal: 16,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
-  rescanBtnTextInside: {
-    fontFamily: 'sans-serif',
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.7)',
-    textDecorationLine: 'underline',
+  rescanBtnTextCompressed: {
+    fontFamily: 'sans-serif-medium',
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '600',
+    letterSpacing: 0.5,
   },
   recordingCard: {
     backgroundColor: '#FFFFFF',
