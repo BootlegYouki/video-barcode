@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ActivityIndicator, useWindowDimensions } from '
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { RipplePressable } from '../components/RipplePressable';
 import { X, Check } from 'phosphor-react-native';
+import Animated, { ZoomIn } from 'react-native-reanimated';
 
 interface CameraScreenProps {
   onClose: () => void;
@@ -176,7 +177,10 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
           </View>
         ) : scanState === 'scanned_confirm' ? (
           <View style={styles.targetContainer}>
-            <View style={styles.confirmCard}>
+            <Animated.View
+              entering={ZoomIn.springify().damping(15).stiffness(120).mass(0.8)}
+              style={styles.confirmCard}
+            >
               <Text style={styles.confirmBarcodeLabel}>SCANNED VALUE</Text>
               <Text style={styles.confirmBarcodeText}>{scannedBarcode}</Text>
               
@@ -196,7 +200,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
               >
                 <Text style={styles.rescanBtnTextInside}>Rescan Barcode</Text>
               </RipplePressable>
-            </View>
+            </Animated.View>
           </View>
         ) : scanState === 'recording' ? (
           <View style={styles.targetContainer}>

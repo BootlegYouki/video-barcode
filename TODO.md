@@ -2,6 +2,6 @@
 
 ## High Priority
 
-- [ ] **Rebuild App with Native Blur**: Recompile the application bundle to enable support for `expo-blur` in the barcode scan confirmation container.
-  - Run `npm run ios` or `npm run android` depending on your active platform/device.
-  - Once the native app is rebuilt, you can restore `BlurView` from `expo-blur` in `CameraScreen.tsx` for real glassmorphism blur.
+- [ ] **Rebuild App with Native Blur**: Trigger the **Build Unsigned iOS Dev Client IPA** workflow via GitHub Actions to compile a new build containing `expo-blur`.
+  - Once the new Dev Client IPA is built, sideload it onto your device.
+  - You can then restore `BlurView` in `CameraScreen.tsx` for real glassmorphic blur instead of the fallback translucent styling.
