@@ -4,6 +4,8 @@ import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo
 import { RipplePressable } from '../components/RipplePressable';
 import { X, Check } from 'phosphor-react-native';
 import Animated, { ZoomIn } from 'react-native-reanimated';
+import { BlurView } from 'expo-blur';
+import { useVideoPlayer, VideoView } from 'expo-video';
 
 interface CameraScreenProps {
   onClose: () => void;
@@ -21,19 +23,25 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
   const viewfinderHeight = Math.min(screenHeight * 0.35, 220);
   const laserLineWidth = viewfinderWidth - 48;
 
-  const [scanState, setScanState] = useState<'scanning' | 'scanned_confirm' | 'recording' | 'saving'>('scanning');
+  const [scanState, setScanState] = useState<'scanning' | 'scanned_confirm' | 'ready_to_record' | 'recording' | 'review' | 'saving'>('scanning');
   const [scannedBarcode, setScannedBarcode] = useState<string | null>(null);
+  const [recordedVideoUri, setRecordedVideoUri] = useState<string | null>(null);
+  const [recordedDuration, setRecordedDuration] = useState<string | null>(null);
   const [recordTimer, setRecordTimer] = useState(0);
 
   const cameraRef = useRef<any>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerValRef = useRef<number>(0);
   const recordingPromiseRef = useRef<Promise<any> | null>(null);
 
   // Handle recording timer
   useEffect(() => {
     if (scanState === 'recording') {
+      timerValRef.current = 0;
+      setRecordTimer(0);
       timerRef.current = setInterval(() => {
-        setRecordTimer((prev) => prev + 1);
+        timerValRef.current += 1;
+        setRecordTimer(timerValRef.current);
       }, 1000);
     } else {
       if (timerRef.current) {
@@ -48,6 +56,13 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
       }
     };
   }, [scanState]);
+
+  const isScanningRef = useRef(true);
+
+  const player = useVideoPlayer(recordedVideoUri || '', (p) => {
+    p.loop = true;
+    p.play();
+  });
 
   // Format timer seconds to mm:ss
   const formatTime = (seconds: number) => {
@@ -90,7 +105,8 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
 
   // Handle barcode scanned callback
   const handleBarcodeScanned = ({ data }: { data: string }) => {
-    if (scanState !== 'scanning') return;
+    if (!isScanningRef.current || scanState !== 'scanning') return;
+    isScanningRef.current = false; // Lock scanning immediately
     setScannedBarcode(data);
     setScanState('scanned_confirm');
   };
@@ -111,11 +127,14 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
 
         const video = await recordingPromise;
         if (video && video.uri) {
-          const durationStr = `0:${recordTimer.toString().padStart(2, '0')}s`;
-          onSaveSession(scannedBarcode, video.uri, durationStr);
+          const durationStr = `0:${timerValRef.current.toString().padStart(2, '0')}s`;
+          setRecordedVideoUri(video.uri);
+          setRecordedDuration(durationStr);
+          setScanState('review');
         }
       } catch (error) {
         console.error('Failed to record video', error);
+        isScanningRef.current = true; // Unlock if error occurs
         setScanState('scanning');
       }
     }
@@ -135,10 +154,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
         style={StyleSheet.absoluteFillObject}
         mode="video"
         ref={cameraRef}
-        barcodeScannerSettings={{
-          barcodeTypes: ['qr', 'ean13', 'upc_a', 'code128', 'code39'],
-        }}
-        onBarcodeScanned={scanState === 'scanning' ? handleBarcodeScanned : undefined}
+        onBarcodeScanned={handleBarcodeScanned}
       />
       {/* Transparent UI Overlay */}
       <View style={[StyleSheet.absoluteFillObject, styles.overlay]}>
@@ -160,21 +176,6 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
         </View>
 
         {/* Viewfinder Target (Only show during scanning) */}
-        {scanState === 'scanning' ? (
-          <View style={styles.targetContainer}>
-            <View style={[styles.viewfinderContainer, { width: viewfinderWidth, height: viewfinderHeight }]}>
-              {/* Custom Corner Brackets */}
-              <View style={[styles.corner, styles.topLeft]} />
-              <View style={[styles.corner, styles.topRight]} />
-              <View style={[styles.corner, styles.bottomLeft]} />
-              <View style={[styles.corner, styles.bottomRight]} />
-              {/* Center laser scanning line */}
-              <View style={[styles.laserLine, { width: laserLineWidth }]} />
-            </View>
-            <Text style={styles.instructionText}>
-              Align barcode within target frame
-            </Text>
-          </View>
         {scanState === 'scanning' || scanState === 'scanned_confirm' ? (
           <View style={styles.targetContainer}>
             <View style={[styles.viewfinderContainer, { width: viewfinderWidth, height: viewfinderHeight }]}>
@@ -188,23 +189,25 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
                 <View style={[styles.laserLine, { width: laserLineWidth }]} />
               )}
             </View>
-            <Text style={styles.instructionText}>
-              {scanState === 'scanning' ? 'Align barcode within target frame' : 'Barcode captured'}
+            <Text style={[styles.instructionText, scanState === 'scanned_confirm' && { opacity: 0 }]}>
+              Align barcode within target frame
             </Text>
           </View>
-        ) : scanState === 'recording' ? (
+        ) : scanState === 'recording' || scanState === 'ready_to_record' ? (
+          null
+        ) : scanState === 'review' ? (
           <View style={styles.targetContainer}>
-            <View style={styles.recordingCard}>
-              <View style={styles.recordingHeader}>
-                <View style={styles.activeRecDot} />
-                <Text style={styles.recLabel}>RECORDING SESSION</Text>
-              </View>
-              <Text style={styles.barcodeLabel}>SCANNED BARCODE</Text>
-              <Text style={styles.barcodeText}>{scannedBarcode}</Text>
-              <Text style={styles.recordingInfo}>
-                Securing parcel packing process. Press stop when finished.
-              </Text>
-            </View>
+            {recordedVideoUri ? (
+              <VideoView
+                style={{ width: viewfinderWidth, height: viewfinderHeight, borderRadius: 12, overflow: 'hidden' }}
+                player={player}
+                allowsFullscreen={false}
+                allowsPictureInPicture={false}
+                nativeControls={true}
+              />
+            ) : (
+              <ActivityIndicator size="large" color="#FFFFFF" />
+            )}
           </View>
         ) : (
           <View style={styles.targetContainer}>
@@ -226,41 +229,84 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
               <View style={styles.stopSquare} />
               <Text style={styles.stopButtonText}>STOP RECORDING</Text>
             </RipplePressable>
-          ) : scanState === 'scanned_confirm' ? (
+          ) : scanState === 'ready_to_record' ? (
+            <RipplePressable
+              onPress={handleStartRecording}
+              style={styles.recordButton}
+            >
+              <View style={styles.recordCircle} />
+              <Text style={styles.recordButtonText}>RECORD</Text>
+            </RipplePressable>
+          ) : scanState === 'review' ? (
             <Animated.View
               entering={ZoomIn.springify().damping(15).stiffness(120).mass(0.8)}
-              style={styles.confirmCardCompressed}
+              style={styles.reviewActionsRowOnly}
             >
-              <View style={styles.confirmCardRow}>
-                <View style={styles.confirmTextCol}>
-                  <Text style={styles.confirmBarcodeLabel}>SCANNED VALUE</Text>
-                  <Text style={styles.confirmBarcodeText} numberOfLines={1} ellipsizeMode="tail">
-                    {scannedBarcode}
-                  </Text>
-                </View>
-                <View style={styles.confirmActionsCol}>
-                  <RipplePressable
-                    onPress={() => {
-                      setScannedBarcode(null);
-                      setScanState('scanning');
-                    }}
-                    style={styles.rescanBtnCompressed}
-                  >
-                    <Text style={styles.rescanBtnTextCompressed}>RESCAN</Text>
-                  </RipplePressable>
-                  <RipplePressable
-                    onPress={handleStartRecording}
-                    style={styles.startRecBtnCompressed}
-                  >
-                    <Text style={styles.startRecBtnTextCompressed}>START</Text>
-                  </RipplePressable>
-                </View>
-              </View>
+              <RipplePressable
+                onPress={() => {
+                  setRecordedVideoUri(null);
+                  setRecordedDuration(null);
+                  setScanState('ready_to_record'); // Go back to record mode
+                }}
+                style={styles.retakeBtnOnly}
+              >
+                <Text style={styles.retakeBtnTextOnly}>RETAKE</Text>
+              </RipplePressable>
+              <RipplePressable
+                onPress={() => {
+                  if (scannedBarcode && recordedVideoUri && recordedDuration) {
+                    setScanState('saving');
+                    onSaveSession(scannedBarcode, recordedVideoUri, recordedDuration);
+                  }
+                }}
+                style={styles.saveBtnOnly}
+              >
+                <Text style={styles.saveBtnTextOnly}>SAVE</Text>
+              </RipplePressable>
             </Animated.View>
           ) : (
             <View style={{ height: 56 }} />
           )}
         </View>
+
+        {/* Floating Confirm Card */}
+        {scanState === 'scanned_confirm' && (
+          <Animated.View
+            entering={ZoomIn.springify().damping(15).stiffness(120).mass(0.8)}
+            style={styles.confirmCardCompressed}
+          >
+            <BlurView
+              intensity={50}
+              tint="dark"
+              experimentalBlurMethod="dimezisBlurView"
+              style={StyleSheet.absoluteFillObject}
+            />
+            <View style={styles.confirmTextRowStacked}>
+              <Text style={styles.confirmBarcodeLabel}>SCANNED VALUE</Text>
+              <Text style={styles.confirmBarcodeTextStacked} numberOfLines={1} ellipsizeMode="tail">
+                {scannedBarcode}
+              </Text>
+            </View>
+            <View style={styles.confirmActionsRowStacked}>
+              <RipplePressable
+                onPress={() => {
+                  isScanningRef.current = true; // Unlock scanning
+                  setScannedBarcode(null);
+                  setScanState('scanning');
+                }}
+                style={styles.rescanBtnCompressed}
+              >
+                <Text style={styles.rescanBtnTextCompressed}>RESCAN</Text>
+              </RipplePressable>
+               <RipplePressable
+                onPress={() => setScanState('ready_to_record')}
+                style={styles.startRecBtnCompressed}
+              >
+                <Text style={styles.startRecBtnTextCompressed}>START</Text>
+              </RipplePressable>
+            </View>
+          </Animated.View>
+        )}
       </View>
     </View>
   );
@@ -364,7 +410,7 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#EF4444',
     marginRight: 8,
   },
   timerText: {
@@ -436,67 +482,68 @@ const styles = StyleSheet.create({
     borderRadius: 9999,
   },
   confirmCardCompressed: {
-    backgroundColor: 'rgba(30, 41, 59, 0.75)',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
+    position: 'absolute',
+    bottom: 200,
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: 'rgba(255, 255, 255, 0.25)',
     width: '100%',
-    maxWidth: 480,
+    maxWidth: 340,
     alignSelf: 'center',
+    overflow: 'hidden',
     shadowColor: '#000000',
     shadowOpacity: 0.15,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
   },
-  confirmCardRow: {
-    flexDirection: 'row',
+  confirmTextRowStacked: {
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  confirmTextCol: {
-    flex: 1,
-    marginRight: 16,
-  },
-  confirmActionsCol: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    marginBottom: 16,
   },
   confirmBarcodeLabel: {
     fontFamily: 'sans-serif-medium',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '600',
     color: 'rgba(255, 255, 255, 0.5)',
     letterSpacing: 0.5,
-    marginBottom: 2,
+    marginBottom: 4,
   },
-  confirmBarcodeText: {
+  confirmBarcodeTextStacked: {
     fontFamily: 'monospace',
-    fontSize: 16,
+    fontSize: 22,
     fontWeight: 'bold',
     color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  confirmActionsRowStacked: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
   },
   startRecBtnCompressed: {
-    paddingHorizontal: 16,
-    height: 38,
+    flex: 1,
+    height: 44,
     backgroundColor: '#FFFFFF',
-    borderRadius: 19,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 8,
+    marginLeft: 12,
   },
   startRecBtnTextCompressed: {
     fontFamily: 'sans-serif-medium',
-    fontSize: 12,
+    fontSize: 13,
     color: '#000000',
     fontWeight: 'bold',
     letterSpacing: 0.5,
   },
   rescanBtnCompressed: {
-    paddingHorizontal: 16,
-    height: 38,
-    borderRadius: 19,
+    flex: 1,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.3)',
     justifyContent: 'center',
@@ -505,9 +552,95 @@ const styles = StyleSheet.create({
   },
   rescanBtnTextCompressed: {
     fontFamily: 'sans-serif-medium',
-    fontSize: 12,
+    fontSize: 13,
     color: '#FFFFFF',
     fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  recordButton: {
+    width: '100%',
+    maxWidth: 320,
+    height: 56,
+    backgroundColor: '#FF3B30',
+    borderRadius: 28,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000000',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  recordButtonText: {
+    fontFamily: 'sans-serif-medium',
+    fontSize: 16,
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  recordCircle: {
+    width: 14,
+    height: 14,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 7,
+    marginRight: 10,
+  },
+  reviewDurationText: {
+    fontFamily: 'sans-serif',
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginTop: 6,
+  },
+  reviewActionsRowOnly: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    maxWidth: 320,
+    alignSelf: 'center',
+  },
+  saveBtnOnly: {
+    flex: 1,
+    height: 56,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 12,
+    elevation: 4,
+    shadowColor: '#000000',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  saveBtnTextOnly: {
+    fontFamily: 'sans-serif-medium',
+    fontSize: 16,
+    color: '#000000',
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  retakeBtnOnly: {
+    flex: 1,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    elevation: 4,
+    shadowColor: '#000000',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  retakeBtnTextOnly: {
+    fontFamily: 'sans-serif-medium',
+    fontSize: 16,
+    color: '#FFFFFF',
+    fontWeight: 'bold',
     letterSpacing: 0.5,
   },
   recordingCard: {

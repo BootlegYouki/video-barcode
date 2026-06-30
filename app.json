@@ -46,7 +46,8 @@
       ],
       "react-native-compressor",
       "@react-native-google-signin/google-signin",
-      "./plugins/withModularHeaders"
+      "./plugins/withModularHeaders",
+      "expo-video"
     ]
   }
 }
