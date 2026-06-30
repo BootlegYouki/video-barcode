@@ -1,22 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, useWindowDimensions } from 'react-native';
-import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { RipplePressable } from '../components/RipplePressable';
-import { X, Check } from 'phosphor-react-native';
-import Animated, { ZoomIn } from 'react-native-reanimated';
+import { X, Check, ArrowCounterClockwise, Lightning } from 'phosphor-react-native';
+import Animated, { ZoomIn, SlideInUp, useSharedValue, useAnimatedStyle, withTiming, interpolate } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import { useVideoPlayer, VideoView } from 'expo-video';
 
 interface CameraScreenProps {
   onClose: () => void;
   onSaveSession: (barcode: string, videoUri: string, duration: string) => void;
+  resolution: '720p' | '1080p';
 }
 
-export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSession }) => {
+export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSession, resolution }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const isLandscape = screenWidth > screenHeight;
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const [microphonePermission, requestMicrophonePermission] = useMicrophonePermissions();
 
   // Responsive viewfinder sizes
   const viewfinderWidth = Math.min(screenWidth * 0.75, 550);
@@ -28,6 +30,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
   const [recordedVideoUri, setRecordedVideoUri] = useState<string | null>(null);
   const [recordedDuration, setRecordedDuration] = useState<string | null>(null);
   const [recordTimer, setRecordTimer] = useState(0);
+  const [flashOn, setFlashOn] = useState(false);
 
   const cameraRef = useRef<any>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -64,6 +67,28 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
     p.play();
   });
 
+  const innerButtonAnim = useSharedValue(0);
+
+  useEffect(() => {
+    if (scanState === 'recording') {
+      innerButtonAnim.value = withTiming(1, { duration: 250 });
+    } else {
+      innerButtonAnim.value = withTiming(0, { duration: 250 });
+    }
+  }, [scanState]);
+
+  const animatedInnerStyle = useAnimatedStyle(() => {
+    const size = interpolate(innerButtonAnim.value, [0, 1], [62, 28]);
+    const borderRadius = interpolate(innerButtonAnim.value, [0, 1], [31, 8]);
+    
+    return {
+      width: size,
+      height: size,
+      borderRadius: borderRadius,
+      backgroundColor: '#FF3B30',
+    };
+  });
+
   // Format timer seconds to mm:ss
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -72,7 +97,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
   };
 
   // Request permissions if not determined
-  if (!cameraPermission || !microphonePermission) {
+  if (!cameraPermission) {
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color="#000000" />
@@ -80,21 +105,20 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
     );
   }
 
-  if (!cameraPermission.granted || !microphonePermission.granted) {
+  if (!cameraPermission.granted) {
     return (
       <View style={styles.permissionContainer}>
-        <Text style={styles.permissionTitle}>Permissions Needed</Text>
+        <Text style={styles.permissionTitle}>Camera Permission Needed</Text>
         <Text style={styles.permissionSubtitle}>
-          We need access to your camera and microphone to scan parcel barcodes and record packing videos.
+          We need access to your camera to scan parcel barcodes and record packing videos.
         </Text>
         <RipplePressable
           onPress={async () => {
             await requestCameraPermission();
-            await requestMicrophonePermission();
           }}
           style={styles.grantButton}
         >
-          <Text style={styles.grantButtonText}>Grant Permissions</Text>
+          <Text style={styles.grantButtonText}>Grant Permission</Text>
         </RipplePressable>
         <RipplePressable onPress={onClose} style={styles.cancelPressable}>
           <Text style={styles.cancelText}>Cancel</Text>
@@ -121,7 +145,8 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
       try {
         const recordingPromise = cameraRef.current.recordAsync({
           maxDuration: 60,
-          quality: '720p',
+          quality: resolution,
+          mute: true,
         });
         recordingPromiseRef.current = recordingPromise;
 
@@ -148,32 +173,150 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
     }
   };
 
+  // Calculate aspect ratio 9:16 bounding box to completely eliminate letterboxing
+  const maxAvailableHeight = screenHeight - 130 - insets.top - insets.bottom;
+  const maxAvailableWidth = screenWidth * 0.92;
+
+  let previewVideoHeight = maxAvailableHeight;
+  let previewVideoWidth = previewVideoHeight * (9 / 16);
+
+  if (previewVideoWidth > maxAvailableWidth) {
+    previewVideoWidth = maxAvailableWidth;
+    previewVideoHeight = previewVideoWidth * (16 / 9);
+  }
+
   return (
     <View style={styles.container}>
       <CameraView
         style={StyleSheet.absoluteFillObject}
         mode="video"
         ref={cameraRef}
+        enableTorch={flashOn}
         onBarcodeScanned={handleBarcodeScanned}
       />
-      {/* Transparent UI Overlay */}
-      <View style={[StyleSheet.absoluteFillObject, styles.overlay]}>
-        {/* Header row */}
-        <View style={[styles.header, isLandscape && styles.headerLandscape]}>
-          <RipplePressable
-            onPress={onClose}
-            disabled={scanState === 'saving'}
-            style={styles.closeBtn}
-          >
-            <X size={20} color="#FFFFFF" weight="bold" />
-          </RipplePressable>
-          {scanState === 'recording' && (
-            <View style={styles.timerBadge}>
-              <View style={styles.blinkDot} />
-              <Text style={styles.timerText}>{formatTime(recordTimer)}</Text>
+
+      {/* If we are in review state, we cover the camera with a full-screen BlurView! */}
+      {scanState === 'review' && (
+        <BlurView
+          intensity={65}
+          tint="default"
+          experimentalBlurMethod="dimezisBlurView"
+          style={StyleSheet.absoluteFillObject}
+        />
+      )}
+
+      {scanState === 'review' ? (
+        <View style={[
+          StyleSheet.absoluteFillObject,
+          {
+            justifyContent: 'space-between',
+            paddingBottom: Math.max(insets.bottom, 24),
+            paddingTop: Math.max(insets.top, 12),
+          }
+        ]}>
+          {/* Spacer to keep top padding clean */}
+          <View style={{ height: 4 }} />
+
+          {/* Massive Video Player */}
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', zIndex: 10 }}>
+            <View style={{
+              borderRadius: 16,
+              overflow: 'hidden',
+              elevation: 8,
+              shadowColor: '#000000',
+              shadowOpacity: 0.15,
+              shadowRadius: 16,
+              shadowOffset: { width: 0, height: 6 },
+              backgroundColor: '#000000',
+            }}>
+              {recordedVideoUri ? (
+                <VideoView
+                  style={{
+                    width: previewVideoWidth,
+                    height: previewVideoHeight,
+                    backgroundColor: '#000000',
+                  }}
+                  player={player}
+                  allowsFullscreen={false}
+                  allowsPictureInPicture={false}
+                  nativeControls={true}
+                />
+              ) : (
+                <ActivityIndicator size="large" color="#FFFFFF" style={{ padding: 40 }} />
+              )}
             </View>
-          )}
+          </View>
+
+          {/* Footer with RETAKE and SAVE buttons */}
+          <View style={[styles.footer, { paddingHorizontal: 24, marginTop: 12, zIndex: 1 }]}>
+            <Animated.View
+              entering={SlideInUp.springify().damping(15).stiffness(120).mass(0.8)}
+              style={styles.reviewActionsRowOnly}
+            >
+              <RipplePressable
+                onPress={() => {
+                  setRecordedVideoUri(null);
+                  setRecordedDuration(null);
+                  setScanState('ready_to_record'); // Go back to record mode
+                }}
+                style={styles.retakeBtnOnly}
+              >
+                <ArrowCounterClockwise size={26} color="#475569" weight="bold" />
+              </RipplePressable>
+              <RipplePressable
+                onPress={() => {
+                  if (scannedBarcode && recordedVideoUri && recordedDuration) {
+                    setScanState('saving');
+                    onSaveSession(scannedBarcode, recordedVideoUri, recordedDuration);
+                  }
+                }}
+                style={styles.saveBtnOnly}
+              >
+                <Check size={30} color="#FFFFFF" weight="bold" />
+              </RipplePressable>
+            </Animated.View>
+          </View>
         </View>
+      ) : (
+        <View style={[StyleSheet.absoluteFillObject, styles.overlay]}>
+          {/* Header row */}
+          <View style={[styles.header, isLandscape && styles.headerLandscape]}>
+            {/* Left: Close button */}
+            <View style={styles.headerColumnLeft}>
+              <RipplePressable
+                onPress={onClose}
+                disabled={scanState === 'saving'}
+                style={styles.closeBtn}
+              >
+                <X size={26} color="#FFFFFF" weight="bold" />
+              </RipplePressable>
+            </View>
+
+            {/* Center: Timer badge */}
+            <View style={styles.headerColumnCenter}>
+              {(scanState === 'recording' || scanState === 'ready_to_record') && (
+                <View style={styles.timerBadge}>
+                  <Text style={styles.timerText}>{formatTime(recordTimer)}</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Right: Flash button */}
+            <View style={styles.headerColumnRight}>
+              {scanState !== 'saving' && (
+                <RipplePressable
+                  onPress={() => setFlashOn(prev => !prev)}
+                  style={styles.flashBtn}
+                >
+                  <Lightning
+                    size={24}
+                    color={flashOn ? '#FFD60A' : '#FFFFFF'}
+                    weight={flashOn ? 'fill' : 'bold'}
+                  />
+                </RipplePressable>
+              )}
+            </View>
+          </View>
 
         {/* Viewfinder Target (Only show during scanning) */}
         {scanState === 'scanning' || scanState === 'scanned_confirm' ? (
@@ -195,20 +338,6 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
           </View>
         ) : scanState === 'recording' || scanState === 'ready_to_record' ? (
           null
-        ) : scanState === 'review' ? (
-          <View style={styles.targetContainer}>
-            {recordedVideoUri ? (
-              <VideoView
-                style={{ width: viewfinderWidth, height: viewfinderHeight, borderRadius: 12, overflow: 'hidden' }}
-                player={player}
-                allowsFullscreen={false}
-                allowsPictureInPicture={false}
-                nativeControls={true}
-              />
-            ) : (
-              <ActivityIndicator size="large" color="#FFFFFF" />
-            )}
-          </View>
         ) : (
           <View style={styles.targetContainer}>
             <View style={styles.savingCard}>
@@ -220,52 +349,15 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
 
         {/* Footer Action Buttons */}
         <View style={styles.footer}>
-          {scanState === 'recording' ? (
+          {scanState === 'recording' || scanState === 'ready_to_record' ? (
             <RipplePressable
-              onPress={handleStopRecording}
-              rippleColor="rgba(0, 0, 0, 0.15)"
-              style={styles.stopButton}
+              onPress={scanState === 'recording' ? handleStopRecording : handleStartRecording}
+              style={styles.iosRecordOuter}
             >
-              <View style={styles.stopSquare} />
-              <Text style={styles.stopButtonText}>STOP RECORDING</Text>
+              <Animated.View style={animatedInnerStyle} />
             </RipplePressable>
-          ) : scanState === 'ready_to_record' ? (
-            <RipplePressable
-              onPress={handleStartRecording}
-              style={styles.recordButton}
-            >
-              <View style={styles.recordCircle} />
-              <Text style={styles.recordButtonText}>RECORD</Text>
-            </RipplePressable>
-          ) : scanState === 'review' ? (
-            <Animated.View
-              entering={ZoomIn.springify().damping(15).stiffness(120).mass(0.8)}
-              style={styles.reviewActionsRowOnly}
-            >
-              <RipplePressable
-                onPress={() => {
-                  setRecordedVideoUri(null);
-                  setRecordedDuration(null);
-                  setScanState('ready_to_record'); // Go back to record mode
-                }}
-                style={styles.retakeBtnOnly}
-              >
-                <Text style={styles.retakeBtnTextOnly}>RETAKE</Text>
-              </RipplePressable>
-              <RipplePressable
-                onPress={() => {
-                  if (scannedBarcode && recordedVideoUri && recordedDuration) {
-                    setScanState('saving');
-                    onSaveSession(scannedBarcode, recordedVideoUri, recordedDuration);
-                  }
-                }}
-                style={styles.saveBtnOnly}
-              >
-                <Text style={styles.saveBtnTextOnly}>SAVE</Text>
-              </RipplePressable>
-            </Animated.View>
           ) : (
-            <View style={{ height: 56 }} />
+            <View style={{ height: 76 }} />
           )}
         </View>
 
@@ -277,7 +369,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
           >
             <BlurView
               intensity={50}
-              tint="dark"
+              tint="default"
               experimentalBlurMethod="dimezisBlurView"
               style={StyleSheet.absoluteFillObject}
             />
@@ -298,7 +390,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
               >
                 <Text style={styles.rescanBtnTextCompressed}>RESCAN</Text>
               </RipplePressable>
-               <RipplePressable
+              <RipplePressable
                 onPress={() => setScanState('ready_to_record')}
                 style={styles.startRecBtnCompressed}
               >
@@ -308,6 +400,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
           </Animated.View>
         )}
       </View>
+      )}
     </View>
   );
 };
@@ -386,7 +479,29 @@ const styles = StyleSheet.create({
   headerLandscape: {
     paddingTop: 12,
   },
+  headerColumnLeft: {
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  headerColumnCenter: {
+    flex: 2,
+    alignItems: 'center',
+  },
+  headerColumnRight: {
+    flex: 1,
+    alignItems: 'flex-end',
+  },
   closeBtn: {
+    width: 44,
+    height: 44,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  flashBtn: {
     width: 44,
     height: 44,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -405,13 +520,6 @@ const styles = StyleSheet.create({
     borderRadius: 9999,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.25)',
-  },
-  blinkDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#EF4444',
-    marginRight: 8,
   },
   timerText: {
     fontFamily: 'monospace',
@@ -484,7 +592,7 @@ const styles = StyleSheet.create({
   confirmCardCompressed: {
     position: 'absolute',
     bottom: 200,
-    backgroundColor: 'rgba(30, 41, 59, 0.4)',
+    backgroundColor: 'transparent',
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderRadius: 24,
@@ -513,7 +621,7 @@ const styles = StyleSheet.create({
   },
   confirmBarcodeTextStacked: {
     fontFamily: 'monospace',
-    fontSize: 22,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#FFFFFF',
     textAlign: 'center',
@@ -586,6 +694,23 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     marginRight: 10,
   },
+  iosRecordOuter: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 4,
+    borderColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    alignSelf: 'center',
+  },
+  iosRecordInner: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: '#FF3B30',
+  },
   reviewDurationText: {
     fontFamily: 'sans-serif',
     fontSize: 13,
@@ -595,51 +720,65 @@ const styles = StyleSheet.create({
   reviewActionsRowOnly: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     width: '100%',
     maxWidth: 320,
     alignSelf: 'center',
   },
   saveBtnOnly: {
-    flex: 1,
-    height: 56,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 28,
+    width: 64,
+    height: 64,
+    backgroundColor: '#0F172A',
+    borderRadius: 32,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 12,
-    elevation: 4,
+    elevation: 2,
     shadowColor: '#000000',
     shadowOpacity: 0.15,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 0 },
   },
-  saveBtnTextOnly: {
+  retakeBtnOnly: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    elevation: 2,
+    shadowColor: '#000000',
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  reviewTopHeaderBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 90,
+  },
+  reviewTopHeaderBtnText: {
     fontFamily: 'sans-serif-medium',
-    fontSize: 16,
-    color: '#000000',
+    fontSize: 14,
+    color: '#FFFFFF',
     fontWeight: 'bold',
     letterSpacing: 0.5,
   },
-  retakeBtnOnly: {
-    flex: 1,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    elevation: 4,
-    shadowColor: '#000000',
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
+  reviewTopHeaderBtnPrimary: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#FFFFFF',
   },
-  retakeBtnTextOnly: {
+  reviewTopHeaderBtnTextPrimary: {
     fontFamily: 'sans-serif-medium',
-    fontSize: 16,
-    color: '#FFFFFF',
+    fontSize: 14,
+    color: '#000000',
     fontWeight: 'bold',
     letterSpacing: 0.5,
   },

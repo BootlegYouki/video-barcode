@@ -1,15 +1,32 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, ScrollView, StyleSheet, Alert, Switch, TouchableWithoutFeedback, Animated, LayoutChangeEvent } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RipplePressable } from '../components/RipplePressable';
 import { MD3Button } from '../components/MD3Button';
-import { CaretRight } from 'phosphor-react-native';
 import { Storage } from '../utils/storage';
 
 interface SettingsScreenProps {
   onResetOnboarding?: () => void;
+  onClearHistory?: () => void;
+  resolution: '720p' | '1080p';
+  onChangeResolution: (res: '720p' | '1080p') => void;
+  isDarkMode: boolean;
+  onToggleDarkMode: (val: boolean) => void;
+  compressionQuality: 'low' | 'medium' | 'high';
+  onChangeCompressionQuality: (val: 'low' | 'medium' | 'high') => void;
 }
 
-export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onResetOnboarding }) => {
+export const SettingsScreen: React.FC<SettingsScreenProps> = ({
+  onResetOnboarding,
+  onClearHistory,
+  resolution,
+  onChangeResolution,
+  isDarkMode,
+  onToggleDarkMode,
+  compressionQuality,
+  onChangeCompressionQuality,
+}) => {
+  const insets = useSafeAreaInsets();
   const [isDriveConnected, setIsDriveConnected] = useState(false);
 
   useEffect(() => {
@@ -26,15 +43,90 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onResetOnboardin
     await Storage.saveDriveConnected(nextState);
   };
 
+  const RESOLUTION_LEVELS: { value: '720p' | '1080p'; label: string }[] = [
+    { value: '720p',  label: '720p'  },
+    { value: '1080p', label: '1080p' },
+  ];
+
+  const resTabIndex = RESOLUTION_LEVELS.findIndex(l => l.value === resolution);
+  const resTabAnim  = useRef(new Animated.Value(resTabIndex)).current;
+  const [resTabWidth, setResTabWidth] = useState(0);
+
+  const handleResolutionChange = (val: '720p' | '1080p') => {
+    const idx = RESOLUTION_LEVELS.findIndex(l => l.value === val);
+    Animated.spring(resTabAnim, {
+      toValue: idx,
+      useNativeDriver: true,
+      tension: 70,
+      friction: 12,
+    }).start();
+    onChangeResolution(val);
+  };
+
+  const handleClearHistoryPress = () => {
+    Alert.alert(
+      'Clear Scan History',
+      'Are you sure you want to permanently delete all scan records and recorded videos? This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Clear All',
+          style: 'destructive',
+          onPress: onClearHistory,
+        },
+      ]
+    );
+  };
+
+  type CompressionLevel = 'low' | 'medium' | 'high';
+
+  const COMPRESSION_LEVELS: { value: CompressionLevel; label: string }[] = [
+    { value: 'low',    label: 'Low'    },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high',   label: 'High'   },
+  ];
+
+  const tabIndex = COMPRESSION_LEVELS.findIndex(l => l.value === compressionQuality);
+  const tabAnim  = useRef(new Animated.Value(tabIndex)).current;
+  const [tabWidth, setTabWidth] = useState(0);
+
+  const handleCompressionChange = (val: 'low' | 'medium' | 'high') => {
+    const idx = COMPRESSION_LEVELS.findIndex(l => l.value === val);
+    Animated.spring(tabAnim, {
+      toValue: idx,
+      useNativeDriver: true,
+      tension: 70,
+      friction: 12,
+    }).start();
+    onChangeCompressionQuality(val);
+  };
+
+  const COMPRESSION_DESCRIPTIONS: Record<CompressionLevel, string> = {
+    low:    'Compressed video — noticeably smaller files',
+    medium: 'Balanced quality and storage use',
+    high:   'Full quality, no compression applied',
+  };
+
+  const isDark = isDarkMode;
+  const themeContainer = isDark ? { backgroundColor: '#0F172A' } : { backgroundColor: '#FFFFFF' };
+  const themeSectionHeader = isDark ? { color: '#64748B' } : { color: '#94A3B8' };
+  const themeCard = isDark ? { backgroundColor: '#1E293B', borderColor: '#334155' } : { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' };
+  const themeText = isDark ? { color: '#FFFFFF' } : { color: '#000000' };
+  const themeSubText = isDark ? { color: '#94A3B8' } : { color: '#64748B' };
+  const themeBorderColor = isDark ? '#334155' : '#E2E8F0';
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+    <ScrollView style={[styles.container, themeContainer, { paddingTop: insets.top + 16 }]} contentContainerStyle={styles.scrollContent}>
       {/* Section: Integrations */}
-      <Text style={styles.sectionHeader}>Integrations</Text>
-      <View style={styles.card}>
+      <Text style={[styles.sectionHeader, themeSectionHeader]}>Integrations</Text>
+      <View style={[styles.card, themeCard]}>
         <View style={styles.integrationRow}>
           <View style={styles.rowContent}>
-            <Text style={styles.rowTitle}>Google Drive</Text>
-            <Text style={styles.rowSubtitle}>
+            <Text style={[styles.rowTitle, themeText]}>Google Drive</Text>
+            <Text style={[styles.rowSubtitle, themeSubText]}>
               {isDriveConnected ? 'Connected as backup drive' : 'Automatically sync videos'}
             </Text>
           </View>
@@ -44,47 +136,162 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onResetOnboardin
             variant={isDriveConnected ? 'outlined' : 'filled'}
             size="normal"
             style={styles.connectBtn}
+            isDarkMode={isDarkMode}
           />
         </View>
       </View>
 
-      {/* Section: Hardware Settings */}
-      <Text style={styles.sectionHeader}>Hardware Settings</Text>
-      <View style={styles.cardList}>
-        {/* Resolution Item */}
-        <RipplePressable onPress={() => {}} style={styles.rowItemBordered}>
-          <View style={styles.rowContent}>
-            <Text style={styles.rowTitle}>Camera Resolution</Text>
-            <Text style={styles.rowSubtitle}>1080p (Full HD) at 30 fps</Text>
+      {/* Section: Video Settings */}
+      <Text style={[styles.sectionHeader, themeSectionHeader]}>Video Settings</Text>
+      <View style={[styles.cardList, themeCard]}>
+        {/* Resolution — Tab Selector */}
+        <View style={[styles.compressionRow, { borderBottomWidth: 1, borderBottomColor: themeBorderColor }]}>
+          <View style={styles.compressionHeader}>
+            <Text style={[styles.rowTitle, themeText]}>Camera Resolution</Text>
+            <Text style={[styles.compressionDesc, themeSubText]}>
+              {resolution === '1080p' ? '1080p · Full HD at 30 fps' : '720p · HD at 30 fps'}
+            </Text>
           </View>
-          <CaretRight size={20} color="#64748B" />
-        </RipplePressable>
 
-        {/* Scan Target formats */}
-        <RipplePressable onPress={() => {}} style={styles.rowItem}>
-          <View style={styles.rowContent}>
-            <Text style={styles.rowTitle}>Barcode Formats</Text>
-            <Text style={styles.rowSubtitle}>Auto detect (All barcode types)</Text>
+          <View
+            style={[styles.tabTrack, isDark ? styles.tabTrackDark : styles.tabTrackLight]}
+            onLayout={(e: LayoutChangeEvent) => setResTabWidth(e.nativeEvent.layout.width / 2)}
+          >
+            {resTabWidth > 0 && (
+              <Animated.View
+                style={[
+                  styles.tabPill,
+                  isDark ? styles.tabPillDark : styles.tabPillLight,
+                  {
+                    width: resTabWidth - 6,
+                    transform: [{
+                      translateX: resTabAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [3, resTabWidth + 3],
+                      }),
+                    }],
+                  },
+                ]}
+              />
+            )}
+
+            {RESOLUTION_LEVELS.map((level) => {
+              const isActive = resolution === level.value;
+              return (
+                <TouchableWithoutFeedback
+                  key={level.value}
+                  onPress={() => handleResolutionChange(level.value)}
+                >
+                  <View style={styles.tabItem}>
+                    <Text style={[
+                      styles.tabLabel,
+                      isDark
+                        ? { color: isActive ? '#FFFFFF' : '#64748B' }
+                        : { color: isActive ? '#0F172A' : '#94A3B8' },
+                    ]}>
+                      {level.label}
+                    </Text>
+                  </View>
+                </TouchableWithoutFeedback>
+              );
+            })}
           </View>
-          <CaretRight size={20} color="#64748B" />
-        </RipplePressable>
+        </View>
+
+        {/* Video Quality — Tab Selector */}
+        <View style={styles.compressionRow}>
+          <View style={styles.compressionHeader}>
+            <Text style={[styles.rowTitle, themeText]}>Video Quality</Text>
+            <Text style={[styles.compressionDesc, themeSubText]}>
+              {COMPRESSION_DESCRIPTIONS[compressionQuality]}
+            </Text>
+          </View>
+
+          <View
+            style={[styles.tabTrack, isDark ? styles.tabTrackDark : styles.tabTrackLight]}
+            onLayout={(e: LayoutChangeEvent) => setTabWidth(e.nativeEvent.layout.width / 3)}
+          >
+            {/* Sliding pill — sits behind labels */}
+            {tabWidth > 0 && (
+              <Animated.View
+                style={[
+                  styles.tabPill,
+                  isDark ? styles.tabPillDark : styles.tabPillLight,
+                  {
+                    width: tabWidth - 6,
+                    transform: [{
+                      translateX: tabAnim.interpolate({
+                        inputRange: [0, 1, 2],
+                        outputRange: [3, tabWidth + 3, tabWidth * 2 + 3],
+                      }),
+                    }],
+                  },
+                ]}
+              />
+            )}
+
+            {/* Labels on top */}
+            {COMPRESSION_LEVELS.map((level) => {
+              const isActive = compressionQuality === level.value;
+              return (
+                <TouchableWithoutFeedback
+                  key={level.value}
+                  onPress={() => handleCompressionChange(level.value)}
+                >
+                  <View style={styles.tabItem}>
+                    <Text style={[
+                      styles.tabLabel,
+                      isDark
+                        ? { color: isActive ? '#FFFFFF' : '#64748B' }
+                        : { color: isActive ? '#0F172A' : '#94A3B8' },
+                    ]}>
+                      {level.label}
+                    </Text>
+                  </View>
+                </TouchableWithoutFeedback>
+              );
+            })}
+          </View>
+        </View>
       </View>
 
       {/* Section: System */}
-      <Text style={styles.sectionHeader}>System</Text>
-      <View style={styles.cardList}>
+      <Text style={[styles.sectionHeader, themeSectionHeader]}>System</Text>
+      <View style={[styles.cardList, themeCard]}>
+        {/* Dark Theme Toggle */}
+        <View style={[styles.systemRowBordered, { borderBottomColor: themeBorderColor, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
+          <View style={styles.rowContent}>
+            <Text style={[styles.rowTitle, themeText]}>Dark Theme</Text>
+            <Text style={[styles.rowSubtitle, themeSubText]}>Switch between light and dark UI themes</Text>
+          </View>
+          <Switch
+            value={isDarkMode}
+            onValueChange={onToggleDarkMode}
+            trackColor={{ false: '#CBD5E1', true: '#10B981' }}
+            thumbColor={isDarkMode ? '#FFFFFF' : '#F1F5F9'}
+          />
+        </View>
+
         {/* Replay Onboarding */}
-        <RipplePressable onPress={onResetOnboarding} style={styles.systemRowBordered}>
-          <Text style={styles.rowTitle}>Replay Onboarding</Text>
-          <Text style={styles.rowSubtitle}>Review the initial setup steps</Text>
+        <RipplePressable onPress={onResetOnboarding} style={[styles.systemRowBordered, { borderBottomColor: themeBorderColor }]}>
+          <Text style={[styles.rowTitle, themeText]}>Replay Onboarding</Text>
+          <Text style={[styles.rowSubtitle, themeSubText]}>Review the initial setup steps</Text>
+        </RipplePressable>
+
+        {/* Clear Scan History */}
+        <RipplePressable onPress={handleClearHistoryPress} style={[styles.systemRowBordered, { borderBottomColor: themeBorderColor }]}>
+          <Text style={[styles.rowTitle, { color: '#EF4444' }]}>Clear Scan History</Text>
+          <Text style={[styles.rowSubtitle, themeSubText]}>Permanently delete all scanned records and packing videos</Text>
         </RipplePressable>
 
         {/* App Version Info */}
         <View style={styles.systemRow}>
-          <Text style={styles.rowTitle}>Version Information</Text>
-          <Text style={styles.rowSubtitle}>v1.0.0 (Latest Release)</Text>
+          <Text style={[styles.rowTitle, themeText]}>Version Information</Text>
+          <Text style={[styles.rowSubtitle, themeSubText]}>v1.0.0 (Latest Release)</Text>
         </View>
       </View>
+
+      <Text style={[styles.authorText, themeSubText]}>Created by BootlegYouki</Text>
     </ScrollView>
   );
 };
@@ -94,7 +301,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 24,
-    paddingTop: 24,
   },
   scrollContent: {
     paddingBottom: 120,
@@ -161,6 +367,59 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 16,
   },
+  compressionRow: {
+    padding: 16,
+    gap: 16,
+  },
+  compressionHeader: {
+    gap: 3,
+  },
+  compressionDesc: {
+    fontSize: 13,
+    marginTop: 2,
+    fontFamily: 'sans-serif',
+  },
+  tabTrack: {
+    flexDirection: 'row',
+    borderRadius: 10,
+    padding: 3,
+    position: 'relative',
+  },
+  tabTrackLight: {
+    backgroundColor: '#E2E8F0',
+  },
+  tabTrackDark: {
+    backgroundColor: '#0F172A',
+  },
+  tabPill: {
+    position: 'absolute',
+    top: 3,
+    bottom: 3,
+    borderRadius: 8,
+  },
+  tabPillLight: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  tabPillDark: {
+    backgroundColor: '#1E293B',
+  },
+  tabItem: {
+    flex: 1,
+    paddingVertical: 9,
+    alignItems: 'center',
+    borderRadius: 8,
+    zIndex: 1,
+  },
+  tabLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    fontFamily: 'sans-serif-medium',
+  },
   systemRowBordered: {
     padding: 16,
     borderBottomWidth: 1,
@@ -168,5 +427,11 @@ const styles = StyleSheet.create({
   },
   systemRow: {
     padding: 16,
+  },
+  authorText: {
+    textAlign: 'center',
+    fontSize: 12,
+    marginBottom: 32,
+    fontFamily: 'sans-serif',
   },
 });

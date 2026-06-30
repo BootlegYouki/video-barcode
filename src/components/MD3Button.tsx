@@ -11,6 +11,7 @@ interface MD3ButtonProps {
   icon?: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   size?: 'normal' | 'large';
+  isDarkMode?: boolean;
 }
 
 export const MD3Button: React.FC<MD3ButtonProps> = ({
@@ -22,6 +23,7 @@ export const MD3Button: React.FC<MD3ButtonProps> = ({
   icon,
   style,
   size = 'normal',
+  isDarkMode = false,
 }) => {
   // Pure Black & White (Monochrome Theme)
   let containerStyle: ViewStyle = {};
@@ -32,41 +34,43 @@ export const MD3Button: React.FC<MD3ButtonProps> = ({
   };
   let rippleColor = 'rgba(255, 255, 255, 0.16)';
 
+  const isDark = !!isDarkMode;
+
   if (disabled) {
     containerStyle = variant === 'outlined' || variant === 'text'
       ? { backgroundColor: 'transparent' }
-      : { backgroundColor: '#E2E8F0' };
-    textStyle.color = '#94A3B8';
+      : { backgroundColor: isDark ? '#334155' : '#E2E8F0' };
+    textStyle.color = isDark ? '#475569' : '#94A3B8';
     if (variant === 'outlined') {
       containerStyle.borderWidth = 1;
-      containerStyle.borderColor = '#CBD5E1';
+      containerStyle.borderColor = isDark ? '#475569' : '#CBD5E1';
     }
   } else {
     switch (variant) {
       case 'tonal':
-        containerStyle = { backgroundColor: '#F1F5F9' };
-        textStyle.color = '#000000';
-        rippleColor = 'rgba(0, 0, 0, 0.08)';
+        containerStyle = { backgroundColor: isDark ? '#334155' : '#F1F5F9' };
+        textStyle.color = isDark ? '#FFFFFF' : '#000000';
+        rippleColor = 'rgba(255, 255, 255, 0.08)';
         break;
       case 'outlined':
         containerStyle = {
           backgroundColor: 'transparent',
           borderWidth: 1,
-          borderColor: '#000000',
+          borderColor: isDark ? '#FFFFFF' : '#000000',
         };
-        textStyle.color = '#000000';
-        rippleColor = 'rgba(0, 0, 0, 0.08)';
+        textStyle.color = isDark ? '#FFFFFF' : '#000000';
+        rippleColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)';
         break;
       case 'text':
         containerStyle = { backgroundColor: 'transparent' };
-        textStyle.color = '#000000';
-        rippleColor = 'rgba(0, 0, 0, 0.08)';
+        textStyle.color = isDark ? '#FFFFFF' : '#000000';
+        rippleColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)';
         break;
       case 'filled':
       default:
-        containerStyle = { backgroundColor: '#000000' };
-        textStyle.color = '#FFFFFF';
-        rippleColor = 'rgba(255, 255, 255, 0.16)';
+        containerStyle = { backgroundColor: isDark ? '#FFFFFF' : '#000000' };
+        textStyle.color = isDark ? '#000000' : '#FFFFFF';
+        rippleColor = isDark ? 'rgba(0, 0, 0, 0.16)' : 'rgba(255, 255, 255, 0.16)';
         break;
     }
   }
@@ -95,7 +99,7 @@ export const MD3Button: React.FC<MD3ButtonProps> = ({
         {loading ? (
           <ActivityIndicator
             size="small"
-            color={variant === 'filled' ? '#FFFFFF' : '#000000'}
+            color={variant === 'filled' ? (isDark ? '#000000' : '#FFFFFF') : (isDark ? '#FFFFFF' : '#000000')}
             style={{ marginRight: 8 }}
           />
         ) : icon ? (

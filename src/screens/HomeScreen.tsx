@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, FlatList, StyleSheet } from 'react-native';
 import { RipplePressable } from '../components/RipplePressable';
-import { Play } from 'phosphor-react-native';
+import { Play, CheckCircle } from 'phosphor-react-native';
 
 interface BarcodeRecord {
   id: string;
@@ -10,45 +10,102 @@ interface BarcodeRecord {
   timestamp: string;
   duration: string;
   fileName: string;
+  videoUri?: string;
+  size?: string;
 }
 
 interface HomeScreenProps {
   records: BarcodeRecord[];
-  onSeeAll: () => void;
+  onPlayVideo: (uri: string) => void;
+  isSelectMode: boolean;
+  selectedIds: string[];
+  onToggleSelect: (id: string) => void;
+  onEnterSelectMode: (initialId: string) => void;
+  isDarkMode?: boolean;
 }
 
-export const HomeScreen: React.FC<HomeScreenProps> = ({ records, onSeeAll }) => {
-  const renderItem = ({ item }: { item: BarcodeRecord }) => (
-    <View style={styles.card}>
-      <RipplePressable onPress={() => {}} style={styles.cardPressable}>
-        <View style={styles.cardContent}>
-          <Text style={styles.timestampText}>{item.timestamp}</Text>
-          <Text style={styles.codeText}>{item.code}</Text>
-          <Text style={styles.metaText}>{item.fileName} • {item.duration}</Text>
-        </View>
-        <View style={styles.playIconContainer}>
-          <Play size={18} color="#000000" weight="fill" />
-        </View>
-      </RipplePressable>
-    </View>
-  );
+export const HomeScreen: React.FC<HomeScreenProps> = ({
+  records,
+  onPlayVideo,
+  isSelectMode,
+  selectedIds,
+  onToggleSelect,
+  onEnterSelectMode,
+  isDarkMode,
+}) => {
+  const isSelected = (id: string) => selectedIds.includes(id);
 
-  return (
-    <View style={styles.container}>
-      {/* Quick List Header */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Recent Scans</Text>
-        <RipplePressable onPress={onSeeAll}>
-          <Text style={styles.seeAllText}>See all</Text>
+  const isDark = !!isDarkMode;
+  const themeCard = isDark ? { backgroundColor: '#1E293B', borderColor: '#334155' } : { backgroundColor: '#FFFFFF', borderColor: '#E2E8F0' };
+  const themeText = isDark ? { color: '#FFFFFF' } : { color: '#000000' };
+  const themeSubText = isDark ? { color: '#94A3B8' } : { color: '#64748B' };
+  const themePlayBtnBg = isDark ? { backgroundColor: '#334155', borderColor: '#475569' } : { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' };
+  const themeUncheckedCircleBorderColor = isDark ? '#475569' : '#CBD5E1';
+
+  const renderItem = ({ item }: { item: BarcodeRecord }) => {
+    const selected = isSelected(item.id);
+
+    return (
+      <View style={[styles.card, themeCard, selected && (isDark ? { borderColor: '#10B981', backgroundColor: '#0B2D20' } : styles.cardSelected)]}>
+        <RipplePressable 
+          onPress={() => {
+            if (isSelectMode) {
+              onToggleSelect(item.id);
+            } else if (item.videoUri) {
+              onPlayVideo(item.videoUri);
+            }
+          }} 
+          onLongPress={() => {
+            if (!isSelectMode) {
+              onEnterSelectMode(item.id);
+            }
+          }}
+          style={styles.cardPressable}
+          delayLongPress={400}
+        >
+          {isSelectMode && (
+            <View style={styles.checkboxContainer}>
+              {selected ? (
+                <CheckCircle size={24} color={isDark ? '#10B981' : '#000000'} weight="fill" />
+              ) : (
+                <View style={[styles.uncheckedCircle, { borderColor: themeUncheckedCircleBorderColor }]} />
+              )}
+            </View>
+          )}
+
+          <View style={styles.cardContent}>
+            <Text style={[styles.timestampText, themeSubText]}>{item.timestamp}</Text>
+            <Text style={[styles.codeText, themeText]}>{item.code}</Text>
+            <Text style={[styles.metaText, themeSubText]}>{item.size ? `${item.size} • ` : ''}{item.duration}</Text>
+          </View>
+
+          {!isSelectMode && (
+            <View style={[styles.playIconContainer, themePlayBtnBg]}>
+              <Play size={18} color={isDark ? '#FFFFFF' : '#000000'} weight="fill" />
+            </View>
+          )}
         </RipplePressable>
       </View>
+    );
+  };
 
-      <FlatList
-        data={records.slice(0, 2)}
-        renderItem={renderItem}
-        keyExtractor={(item) => item.id}
-        scrollEnabled={false}
-      />
+  return (
+    <View style={[styles.container, isDark && { backgroundColor: '#0F172A' }]}>
+      {records.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Text style={[styles.emptyText, themeText]}>No scans yet</Text>
+          <Text style={[styles.emptySubtext, themeSubText]}>
+            Tap the camera button in the center of the navigation bar to start.
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={records}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+        />
+      )}
     </View>
   );
 };
@@ -56,28 +113,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ records, onSeeAll }) => 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 24,
     backgroundColor: '#FFFFFF',
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontFamily: 'sans-serif-medium',
-    fontSize: 18,
-    fontWeight: '500',
-    color: '#000000',
-  },
-  seeAllText: {
-    fontFamily: 'sans-serif',
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000000',
-    textDecorationLine: 'underline',
+  listContent: {
+    paddingBottom: 140, // More bottom padding to clear the floating action menu in select mode!
+    paddingTop: 16,
   },
   card: {
     backgroundColor: '#FFFFFF',
@@ -88,11 +128,19 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     overflow: 'hidden',
   },
+  cardSelected: {
+    borderColor: '#000000',
+    backgroundColor: '#F8FAFC',
+  },
   cardPressable: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     padding: 20,
+  },
+  checkboxContainer: {
+    marginRight: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   cardContent: {
     flex: 1,
@@ -125,5 +173,33 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
     marginLeft: 8,
+  },
+  emptyContainer: {
+    paddingVertical: 48,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    fontFamily: 'sans-serif-medium',
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#475569',
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    fontFamily: 'sans-serif',
+    fontSize: 14,
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  uncheckedCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: '#94A3B8',
+    backgroundColor: 'transparent',
   },
 });
