@@ -323,6 +323,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
         style={StyleSheet.absoluteFillObject}
         mode={cameraMode}
         ref={cameraRef}
+        mute={true}
         enableTorch={flashOn}
         onBarcodeScanned={handleBarcodeScanned}
       />
