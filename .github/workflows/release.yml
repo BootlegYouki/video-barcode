@@ -1,0 +1,234 @@
+name: Release Video Barcode (Android & iOS)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  bump-version:
+    name: Bump Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump_version.outputs.version }}
+      sha: ${{ steps.git_push.outputs.sha }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Auto-increment version in app.json
+        id: bump_version
+        run: |
+          node -e "
+            const fs = require('fs');
+            const app = require('./app.json');
+            
+            // Increment version string
+            const currentVersion = app.expo.version || '1.0.0';
+            const parts = currentVersion.split('.').map(Number);
+            if (parts.length === 3) {
+              parts[2] += 1;
+            } else {
+              parts.push(1);
+            }
+            const nextVersion = parts.join('.');
+            app.expo.version = nextVersion;
+
+            // Increment android versionCode
+            if (!app.expo.android) {
+              app.expo.android = {};
+            }
+            const currentVersionCode = app.expo.android.versionCode || 1;
+            const nextVersionCode = currentVersionCode + 1;
+            app.expo.android.versionCode = nextVersionCode;
+
+            fs.writeFileSync('./app.json', JSON.stringify(app, null, 2) + '\n');
+            console.log('Next version calculated:', nextVersion);
+            console.log('Next versionCode calculated:', nextVersionCode);
+            
+            // Output to GitHub Actions Outputs
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + nextVersion + '\n');
+          "
+
+      - name: Commit and push updated app.json
+        id: git_push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add app.json
+          git commit -m "chore: bump version to v${{ steps.bump_version.outputs.version }} [skip ci]"
+          git push origin HEAD:main
+          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+  build-android:
+    name: Build Android APK
+    needs: bump-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump-version.outputs.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Expo Prebuild (Generate Android folder)
+        run: npx expo prebuild --platform android --clean
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build Android Release APK
+        run: |
+          cd android
+          ./gradlew assembleRelease
+
+      - name: Prepare APK Artifact
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk VideoBarcode.apk
+
+      - name: Create GitHub Release (Android)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.bump-version.outputs.version }}-android
+          name: Video Barcode v${{ needs.bump-version.outputs.version }} (Android)
+          body: |
+            ## Video Barcode v${{ needs.bump-version.outputs.version }} (Android Release)
+            
+            ### Android Installation
+            Download the `VideoBarcode.apk` file below and install it on your Android device.
+          files: |
+            VideoBarcode.apk
+          draft: false
+          prerelease: false
+
+  build-ios:
+    name: Build iOS IPA
+    needs: bump-version
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump-version.outputs.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Expo Prebuild (Generate iOS folder)
+        run: npx expo prebuild --platform ios --clean
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install
+
+      - name: Build Unsigned App
+        run: |
+          cd ios
+          xcodebuild -workspace VideoBarcode.xcworkspace \
+            -scheme VideoBarcode \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package into IPA
+        run: |
+          cd ios/build/Build/Products/Release-iphoneos
+          mkdir Payload
+          mv VideoBarcode.app Payload/
+          zip -qr ../../../../../VideoBarcode.ipa Payload
+
+      - name: Generate SideStore source.json
+        run: |
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          REPO="${{ github.repository }}"
+          cat > sidestore.json << EOF
+          {
+            "name": "Video Barcode",
+            "identifier": "com.bootlegyouki.videobarcode.source",
+            "apps": [
+              {
+                "name": "Video Barcode",
+                "bundleIdentifier": "com.bootlegyouki.videobarcode",
+                "developerName": "BootlegYouki",
+                "version": "${{ needs.bump-version.outputs.version }}",
+                "versionDate": "${DATE}",
+                "downloadURL": "https://github.com/${REPO}/releases/download/v${{ needs.bump-version.outputs.version }}-ios/VideoBarcode.ipa",
+                "localizedDescription": "Video barcode scanner app.",
+                "iconURL": "https://raw.githubusercontent.com/${REPO}/main/assets/icon.png",
+                "tintColor": "4F46E5",
+                "size": 0
+              }
+            ]
+          }
+          EOF
+
+      - name: Create GitHub Release (iOS)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.bump-version.outputs.version }}-ios
+          name: Video Barcode v${{ needs.bump-version.outputs.version }} (iOS)
+          body: |
+            ## Video Barcode v${{ needs.bump-version.outputs.version }} (iOS Release)
+            
+            ### iOS Sideloading (SideStore / Sideloadly / AltStore)
+            Download `VideoBarcode.ipa` below and sideload it.
+            
+            ### SideStore Source URL
+            Add this source to SideStore for auto-updates:
+            ```
+            https://raw.githubusercontent.com/${{ github.repository }}/main/sidestore.json
+            ```
+          files: |
+            VideoBarcode.ipa
+            sidestore.json
+          draft: false
+          prerelease: false
+
+      - name: Commit and push updated sidestore.json to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add sidestore.json
+          git stash
+          git fetch origin main
+          git rebase origin/main
+          git stash pop
+          git add sidestore.json
+          git diff --staged --quiet || git commit -m "chore: update sidestore.json for v${{ needs.bump-version.outputs.version }} [skip ci]"
+          git push origin HEAD:main

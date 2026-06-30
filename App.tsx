@@ -1,8 +1,14 @@
 import "./global.css";
+import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { Text, View } from 'react-native';
+import { checkForUpdates } from './src/utils/update-checker';
 
 export default function App() {
+  useEffect(() => {
+    checkForUpdates();
+  }, []);
+
   return (
     <View className="flex-1 items-center justify-center bg-slate-950 px-6">
       <View className="items-center">
