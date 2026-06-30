@@ -4,7 +4,7 @@ import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { checkForUpdates } from './src/utils/update-checker';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
-import { MainScreenMock } from './src/screens/MainScreenMock';
+import { MainScreen } from './src/screens/MainScreen';
 import { Storage } from './src/utils/storage';
 
 export default function App() {
@@ -58,7 +58,7 @@ export default function App() {
         {showOnboarding ? (
           <OnboardingScreen onComplete={handleCompleteOnboarding} />
         ) : (
-          <MainScreenMock
+          <MainScreen
             onResetOnboarding={handleResetOnboarding}
             isDarkMode={isDarkMode}
             onToggleDarkMode={handleToggleTheme}

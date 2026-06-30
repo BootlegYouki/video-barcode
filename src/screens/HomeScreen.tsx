@@ -1,7 +1,7 @@
 import React from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
+import { View, Text, FlatList, StyleSheet, Image } from 'react-native';
 import { RipplePressable } from '../components/RipplePressable';
-import { Play, CheckCircle } from 'phosphor-react-native';
+import { Play, CheckCircle, Barcode, QrCode } from 'phosphor-react-native';
 
 interface BarcodeRecord {
   id: string;
@@ -12,6 +12,9 @@ interface BarcodeRecord {
   fileName: string;
   videoUri?: string;
   size?: string;
+  mode?: 'packing' | 'unboxing';
+  brand?: 'Marigold Philippines' | 'Marigold Collab';
+  thumbnailUri?: string;
 }
 
 interface HomeScreenProps {
@@ -73,17 +76,42 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </View>
           )}
 
+          {/* Icon Thumbnail */}
+          <View style={[styles.thumbnailContainer, isDark ? styles.thumbnailContainerDark : styles.thumbnailContainerLight]}>
+            {item.thumbnailUri ? (
+              <Image source={{ uri: item.thumbnailUri }} style={styles.thumbnailImage} />
+            ) : item.type === 'QR_CODE' ? (
+              <QrCode size={30} color={isDark ? '#FFFFFF' : '#0F172A'} weight="thin" />
+            ) : (
+              <Barcode size={30} color={isDark ? '#FFFFFF' : '#0F172A'} weight="thin" />
+            )}
+          </View>
+
           <View style={styles.cardContent}>
             <Text style={[styles.timestampText, themeSubText]}>{item.timestamp}</Text>
             <Text style={[styles.codeText, themeText]}>{item.code}</Text>
+
+            {(item.mode || item.brand) && (
+              <View style={styles.tagRow}>
+                {item.mode && (
+                  <View style={[styles.tag, item.mode === 'packing' ? styles.tagPacking : styles.tagUnboxing]}>
+                    <Text style={[styles.tagText, { color: '#FFFFFF' }]}>
+                      {item.mode === 'packing' ? 'Packing' : 'Unboxing'}
+                    </Text>
+                  </View>
+                )}
+                {item.brand && (
+                  <View style={[styles.tag, item.brand === 'Marigold Philippines' ? styles.tagBrandPH : styles.tagBrandCollab]}>
+                    <Text style={[styles.tagText, { color: item.brand === 'Marigold Philippines' ? '#000000' : '#FFFFFF' }]}>
+                      {item.brand}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+
             <Text style={[styles.metaText, themeSubText]}>{item.size ? `${item.size} • ` : ''}{item.duration}</Text>
           </View>
-
-          {!isSelectMode && (
-            <View style={[styles.playIconContainer, themePlayBtnBg]}>
-              <Play size={18} color={isDark ? '#FFFFFF' : '#000000'} weight="fill" />
-            </View>
-          )}
         </RipplePressable>
       </View>
     );
@@ -142,6 +170,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  thumbnailContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+    borderWidth: 1,
+  },
+  thumbnailContainerLight: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+  },
+  thumbnailContainerDark: {
+    backgroundColor: '#0F172A',
+    borderColor: '#334155',
+  },
+  thumbnailImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 11,
+  },
   cardContent: {
     flex: 1,
   },
@@ -162,6 +212,36 @@ const styles = StyleSheet.create({
     fontFamily: 'sans-serif',
     fontSize: 14,
     color: '#94A3B8',
+  },
+  tagRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 10,
+  },
+  tag: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  tagPacking: {
+    backgroundColor: '#F59E0B',
+  },
+  tagUnboxing: {
+    backgroundColor: '#3B82F6',
+  },
+  tagBrandPH: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#000000',
+  },
+  tagBrandCollab: {
+    backgroundColor: '#EF4444',
+  },
+  tagText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    fontFamily: 'sans-serif-medium',
   },
   playIconContainer: {
     width: 48,

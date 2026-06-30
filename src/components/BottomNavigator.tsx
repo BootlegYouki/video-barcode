@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { House, Gear, Camera } from 'phosphor-react-native';
+import { House, Gear, Plus } from 'phosphor-react-native';
 import { RipplePressable } from './RipplePressable';
 
 interface BottomNavigatorProps {
@@ -37,7 +37,7 @@ export const BottomNavigator: React.FC<BottomNavigatorProps> = ({
           style={[styles.fabButton, { backgroundColor: themeFABBg }]}
           rippleColor={isDark ? "rgba(0, 0, 0, 0.2)" : "rgba(255, 255, 255, 0.2)"}
         >
-          <Camera size={30} color={themeFABColor} weight="bold" />
+          <Plus size={30} color={themeFABColor} weight="bold" />
         </RipplePressable>
       </View>
 
