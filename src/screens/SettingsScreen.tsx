@@ -8,8 +8,6 @@ import { Storage } from '../utils/storage';
 interface SettingsScreenProps {
   onResetOnboarding?: () => void;
   onClearHistory?: () => void;
-  resolution: '720p' | '1080p';
-  onChangeResolution: (res: '720p' | '1080p') => void;
   isDarkMode: boolean;
   onToggleDarkMode: (val: boolean) => void;
   compressionQuality: 'low' | 'medium' | 'high';
@@ -19,8 +17,6 @@ interface SettingsScreenProps {
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onResetOnboarding,
   onClearHistory,
-  resolution,
-  onChangeResolution,
   isDarkMode,
   onToggleDarkMode,
   compressionQuality,
@@ -43,25 +39,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     await Storage.saveDriveConnected(nextState);
   };
 
-  const RESOLUTION_LEVELS: { value: '720p' | '1080p'; label: string }[] = [
-    { value: '720p',  label: '720p'  },
-    { value: '1080p', label: '1080p' },
-  ];
 
-  const resTabIndex = RESOLUTION_LEVELS.findIndex(l => l.value === resolution);
-  const resTabAnim  = useRef(new Animated.Value(resTabIndex)).current;
-  const [resTabWidth, setResTabWidth] = useState(0);
-
-  const handleResolutionChange = (val: '720p' | '1080p') => {
-    const idx = RESOLUTION_LEVELS.findIndex(l => l.value === val);
-    Animated.spring(resTabAnim, {
-      toValue: idx,
-      useNativeDriver: true,
-      tension: 70,
-      friction: 12,
-    }).start();
-    onChangeResolution(val);
-  };
 
   const handleClearHistoryPress = () => {
     Alert.alert(
@@ -144,59 +122,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       {/* Section: Video Settings */}
       <Text style={[styles.sectionHeader, themeSectionHeader]}>Video Settings</Text>
       <View style={[styles.cardList, themeCard]}>
-        {/* Resolution — Tab Selector */}
-        <View style={[styles.compressionRow, { borderBottomWidth: 1, borderBottomColor: themeBorderColor }]}>
-          <View style={styles.compressionHeader}>
-            <Text style={[styles.rowTitle, themeText]}>Camera Resolution</Text>
-            <Text style={[styles.compressionDesc, themeSubText]}>
-              {resolution === '1080p' ? '1080p · Full HD at 30 fps' : '720p · HD at 30 fps'}
-            </Text>
-          </View>
 
-          <View
-            style={[styles.tabTrack, isDark ? styles.tabTrackDark : styles.tabTrackLight]}
-            onLayout={(e: LayoutChangeEvent) => setResTabWidth(e.nativeEvent.layout.width / 2)}
-          >
-            {resTabWidth > 0 && (
-              <Animated.View
-                style={[
-                  styles.tabPill,
-                  isDark ? styles.tabPillDark : styles.tabPillLight,
-                  {
-                    width: resTabWidth - 6,
-                    transform: [{
-                      translateX: resTabAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [3, resTabWidth + 3],
-                      }),
-                    }],
-                  },
-                ]}
-              />
-            )}
-
-            {RESOLUTION_LEVELS.map((level) => {
-              const isActive = resolution === level.value;
-              return (
-                <TouchableWithoutFeedback
-                  key={level.value}
-                  onPress={() => handleResolutionChange(level.value)}
-                >
-                  <View style={styles.tabItem}>
-                    <Text style={[
-                      styles.tabLabel,
-                      isDark
-                        ? { color: isActive ? '#FFFFFF' : '#64748B' }
-                        : { color: isActive ? '#0F172A' : '#94A3B8' },
-                    ]}>
-                      {level.label}
-                    </Text>
-                  </View>
-                </TouchableWithoutFeedback>
-              );
-            })}
-          </View>
-        </View>
 
         {/* Video Quality — Tab Selector */}
         <View style={styles.compressionRow}>

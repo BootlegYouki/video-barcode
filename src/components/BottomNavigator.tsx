@@ -142,20 +142,19 @@ const styles = StyleSheet.create({
     zIndex: 1,
     height: 96,
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-evenly',
     alignItems: 'center',
     paddingBottom: 32,
   },
   tabItem: {
     alignItems: 'center',
     justifyContent: 'center',
-    flex: 1,
+    width: 70,
     height: '100%',
     zIndex: 2,
   },
   tabItemCenterSpacer: {
-    flex: 1,
-    height: '100%',
+    width: 120,
   },
   tabIconContainer: {
     alignItems: 'center',

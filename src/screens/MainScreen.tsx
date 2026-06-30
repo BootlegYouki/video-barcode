@@ -1,16 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, Animated, Dimensions, Pressable, Alert, TouchableWithoutFeedback, LayoutChangeEvent, PanResponder } from 'react-native';
+import { View, Text, StyleSheet, Animated, Dimensions, Pressable, Alert, TouchableWithoutFeedback, LayoutChangeEvent, PanResponder, TextInput, Keyboard, ScrollView } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Reanimated, { FadeIn, FadeOut, ZoomIn, ZoomOut, SlideInDown, SlideOutDown, useSharedValue, useAnimatedStyle, withTiming, runOnJS, interpolate } from 'react-native-reanimated';
 import { RipplePressable } from '../components/RipplePressable';
-import { MagnifyingGlass, X, Trash } from 'phosphor-react-native';
+import { MagnifyingGlass, X, Trash, Barcode, CaretDown } from 'phosphor-react-native';
 import { BottomNavigator } from '../components/BottomNavigator';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { HomeScreen } from './HomeScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { CameraScreen } from './CameraScreen';
 import { MD3Button } from '../components/MD3Button';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 
 import { Storage } from '../utils/storage';
 
@@ -53,8 +54,67 @@ export const MainScreen: React.FC<MainScreenProps> = ({
   const [activeRecord, setActiveRecord] = useState<BarcodeRecord | null>(null);
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [resolution, setResolution] = useState<'720p' | '1080p'>('720p');
   const [compressionQuality, setCompressionQuality] = useState<'low' | 'medium' | 'high'>('medium');
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showInlineScanner, setShowInlineScanner] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [inlineScannedBarcode, setInlineScannedBarcode] = useState<string | null>(null);
+  const [allowInlineScan, setAllowInlineScan] = useState(false);
+  const [activeModeFilter, setActiveModeFilter] = useState<'all' | 'packing' | 'unboxing'>('all');
+  const [activeBrandFilter, setActiveBrandFilter] = useState<'all' | 'Marigold Philippines' | 'Marigold Collab'>('all');
+  const [showModeDropdown, setShowModeDropdown] = useState(false);
+  const [showBrandDropdown, setShowBrandDropdown] = useState(false);
+
+  useEffect(() => {
+    if (showInlineScanner) {
+      setAllowInlineScan(false);
+      const timer = setTimeout(() => {
+        setAllowInlineScan(true);
+      }, 1200);
+      return () => clearTimeout(timer);
+    } else {
+      setAllowInlineScan(false);
+    }
+  }, [showInlineScanner]);
+
+  const inlineScannerHeight = useSharedValue(0);
+
+  useEffect(() => {
+    inlineScannerHeight.value = withTiming(showInlineScanner ? 130 : 0, { duration: 250 });
+  }, [showInlineScanner]);
+
+  const animatedInlineScannerStyle = useAnimatedStyle(() => ({
+    height: inlineScannerHeight.value,
+    opacity: interpolate(inlineScannerHeight.value, [0, 130], [0, 1]),
+    marginTop: interpolate(inlineScannerHeight.value, [0, 130], [0, 12]),
+  }));
+
+  const filteredRecords = records.filter(record => {
+    // 1. Search Query filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchesSearch = (
+        record.code.toLowerCase().includes(query) ||
+        record.fileName.toLowerCase().includes(query) ||
+        (record.mode && record.mode.toLowerCase().includes(query)) ||
+        (record.brand && record.brand.toLowerCase().includes(query))
+      );
+      if (!matchesSearch) return false;
+    }
+
+    // 2. Mode filter
+    if (activeModeFilter !== 'all' && record.mode !== activeModeFilter) {
+      return false;
+    }
+
+    // 3. Brand/Page filter
+    if (activeBrandFilter !== 'all' && record.brand !== activeBrandFilter) {
+      return false;
+    }
+
+    return true;
+  });
 
   // Scan Setup Bottom Sheet choice states
   const [showBottomSheet, setShowBottomSheet] = useState(false);
@@ -161,15 +221,12 @@ export const MainScreen: React.FC<MainScreenProps> = ({
     p.play();
   });
 
-  // Load history records and settings from AsyncStorage on mount
   useEffect(() => {
     const loadData = async () => {
       const stored = await Storage.getHistoryRecords();
       if (stored && stored.length > 0) {
         setRecords(stored);
       }
-      const storedRes = await Storage.getCameraResolution();
-      setResolution(storedRes);
       const storedComp = await Storage.getCompressionQuality();
       setCompressionQuality(storedComp);
     };
@@ -195,20 +252,22 @@ export const MainScreen: React.FC<MainScreenProps> = ({
     let finalVideoUri = videoUri;
     try {
       if (compressionQuality === 'high') {
-        // Skip compression entirely — preserve the raw camera output for best quality
+        // Skip compression entirely — preserve the raw 1080p camera output
         console.log('High quality selected, skipping compression.');
       } else {
         console.log('Compressing video at:', videoUri);
-        const targetBitrate = compressionQuality === 'medium' ? 2500000 : 1000000;
-
+        const targetBitrate = compressionQuality === 'medium' ? 5000000 : 2000000;
+        const targetMaxSize = compressionQuality === 'medium' ? 1280 : 854;
+ 
         finalVideoUri = await VideoCompressor.compress(
           videoUri,
           {
             compressionMethod: 'manual',
             bitrate: targetBitrate,
+            maxSize: targetMaxSize,
           }
         );
-        console.log('Compression complete with target bitrate:', targetBitrate, 'Output URI:', finalVideoUri);
+        console.log('Compression complete with target size:', targetMaxSize, 'bitrate:', targetBitrate, 'Output URI:', finalVideoUri);
       }
     } catch (compressErr) {
       console.error('Failed to compress video, using original:', compressErr);
@@ -310,6 +369,8 @@ export const MainScreen: React.FC<MainScreenProps> = ({
 
     setShowCamera(false);
     setActiveTab('home');
+    setInlineScannedBarcode(null);
+    setShowInlineScanner(false);
   };
 
   const onEnterSelectMode = (initialId: string) => {
@@ -322,6 +383,33 @@ export const MainScreen: React.FC<MainScreenProps> = ({
       setSelectedIds(prev => prev.filter(x => x !== id));
     } else {
       setSelectedIds(prev => [...prev, id]);
+    }
+  };
+
+  const deleteFilesForRecords = async (recordsToDelete: BarcodeRecord[]) => {
+    for (const r of recordsToDelete) {
+      if (r.videoUri) {
+        try {
+          const info = await FileSystem.getInfoAsync(r.videoUri);
+          if (info.exists) {
+            await FileSystem.deleteAsync(r.videoUri, { idempotent: true });
+            console.log('Deleted video file:', r.videoUri);
+          }
+        } catch (err) {
+          console.error('Error deleting video file:', r.videoUri, err);
+        }
+      }
+      if (r.thumbnailUri) {
+        try {
+          const info = await FileSystem.getInfoAsync(r.thumbnailUri);
+          if (info.exists) {
+            await FileSystem.deleteAsync(r.thumbnailUri, { idempotent: true });
+            console.log('Deleted thumbnail file:', r.thumbnailUri);
+          }
+        } catch (err) {
+          console.error('Error deleting thumbnail file:', r.thumbnailUri, err);
+        }
+      }
     }
   };
 
@@ -338,6 +426,8 @@ export const MainScreen: React.FC<MainScreenProps> = ({
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
+            const toDelete = records.filter(r => selectedIds.includes(r.id));
+            await deleteFilesForRecords(toDelete);
             const updated = records.filter(r => !selectedIds.includes(r.id));
             setRecords(updated);
             await Storage.saveHistoryRecords(updated);
@@ -354,10 +444,7 @@ export const MainScreen: React.FC<MainScreenProps> = ({
     setSelectedIds([]);
   };
 
-  const handleResolutionChange = async (newRes: '720p' | '1080p') => {
-    setResolution(newRes);
-    await Storage.saveCameraResolution(newRes);
-  };
+
 
   const handleCompressionQualityChange = async (newQuality: 'low' | 'medium' | 'high') => {
     setCompressionQuality(newQuality);
@@ -367,9 +454,13 @@ export const MainScreen: React.FC<MainScreenProps> = ({
   if (showCamera) {
     return (
       <CameraScreen
-        onClose={() => setShowCamera(false)}
+        onClose={() => {
+          setShowCamera(false);
+          setInlineScannedBarcode(null);
+        }}
         onSaveSession={handleSaveSession}
-        resolution={resolution}
+        compressionQuality={compressionQuality}
+        initialBarcode={inlineScannedBarcode || undefined}
       />
     );
   }
@@ -388,44 +479,190 @@ export const MainScreen: React.FC<MainScreenProps> = ({
         <View style={[styles.searchHeader, themeHeader]}>
           <View style={[styles.searchBar, themeSearchBar]}>
             <MagnifyingGlass size={22} color={isDark ? '#94A3B8' : '#64748B'} />
-            <Text style={[styles.searchText, themeSearchText]}>Search scan history...</Text>
-            <View style={[styles.avatar, themeAvatar]}>
-              <Text style={styles.avatarText}>U</Text>
+            <TextInput
+              style={[styles.searchInput, themeSearchText]}
+              placeholder="Search scan history..."
+              placeholderTextColor={isDark ? '#94A3B8' : '#64748B'}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCorrect={false}
+            />
+            {searchQuery.length > 0 && (
+              <RipplePressable
+                onPress={() => setSearchQuery('')}
+                style={styles.clearSearchButton}
+                rippleColor="rgba(0, 0, 0, 0.1)"
+              >
+                <X size={20} color={isDark ? '#94A3B8' : '#64748B'} weight="bold" />
+              </RipplePressable>
+            )}
+            <RipplePressable
+              onPress={async () => {
+                if (!cameraPermission || !cameraPermission.granted) {
+                  const res = await requestCameraPermission();
+                  if (!res.granted) {
+                    Alert.alert('Camera Permission', 'We need camera permission to scan barcodes.');
+                    return;
+                  }
+                }
+                setShowInlineScanner(prev => !prev);
+              }}
+              style={[
+                styles.scannerButton,
+                showInlineScanner
+                  ? { backgroundColor: '#10B981' }
+                  : (isDark ? { backgroundColor: '#334155' } : { backgroundColor: '#0F172A' })
+              ]}
+              rippleColor="rgba(255, 255, 255, 0.2)"
+            >
+              <Barcode size={22} color="#FFFFFF" weight="bold" />
+            </RipplePressable>
+          </View>
+
+          {/* Filter Dropdowns Row */}
+          <View style={styles.filterDropdownsRow}>
+            {/* Mode Dropdown */}
+            <View style={styles.dropdownWrapper}>
+              <Pressable
+                onPress={() => { setShowModeDropdown(prev => !prev); setShowBrandDropdown(false); }}
+                style={[styles.dropdownButton, isDark ? styles.dropdownButtonDark : styles.dropdownButtonLight]}
+              >
+                <Text style={[styles.dropdownButtonText, isDark ? styles.dropdownTextDark : styles.dropdownTextLight]}>
+                  {activeModeFilter === 'all' ? 'All Modes' : activeModeFilter === 'packing' ? 'Packing' : 'Unboxing'}
+                </Text>
+                <CaretDown size={16} color={isDark ? '#94A3B8' : '#64748B'} />
+              </Pressable>
+              
+              {showModeDropdown && (
+                <View style={[styles.dropdownMenu, isDark ? styles.dropdownMenuDark : styles.dropdownMenuLight]}>
+                  <Pressable
+                    onPress={() => { setActiveModeFilter('all'); setShowModeDropdown(false); }}
+                    style={styles.dropdownItem}
+                  >
+                    <Text style={[styles.dropdownItemText, isDark ? styles.dropdownTextDark : styles.dropdownTextLight]}>All Modes</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => { setActiveModeFilter('packing'); setShowModeDropdown(false); }}
+                    style={styles.dropdownItem}
+                  >
+                    <Text style={[styles.dropdownItemText, isDark ? styles.dropdownTextDark : styles.dropdownTextLight]}>Packing</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => { setActiveModeFilter('unboxing'); setShowModeDropdown(false); }}
+                    style={styles.dropdownItem}
+                  >
+                    <Text style={[styles.dropdownItemText, isDark ? styles.dropdownTextDark : styles.dropdownTextLight]}>Unboxing</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+
+            {/* Brand Dropdown */}
+            <View style={styles.dropdownWrapper}>
+              <Pressable
+                onPress={() => { setShowBrandDropdown(prev => !prev); setShowModeDropdown(false); }}
+                style={[styles.dropdownButton, isDark ? styles.dropdownButtonDark : styles.dropdownButtonLight]}
+              >
+                <Text style={[styles.dropdownButtonText, isDark ? styles.dropdownTextDark : styles.dropdownTextLight]} numberOfLines={1}>
+                  {activeBrandFilter === 'all' ? 'All Pages' : activeBrandFilter === 'Marigold Philippines' ? 'Marigold PH' : 'Marigold Collab'}
+                </Text>
+                <CaretDown size={16} color={isDark ? '#94A3B8' : '#64748B'} />
+              </Pressable>
+
+              {showBrandDropdown && (
+                <View style={[styles.dropdownMenu, isDark ? styles.dropdownMenuDark : styles.dropdownMenuLight]}>
+                  <Pressable
+                    onPress={() => { setActiveBrandFilter('all'); setShowBrandDropdown(false); }}
+                    style={styles.dropdownItem}
+                  >
+                    <Text style={[styles.dropdownItemText, isDark ? styles.dropdownTextDark : styles.dropdownTextLight]}>All Pages</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => { setActiveBrandFilter('Marigold Philippines'); setShowBrandDropdown(false); }}
+                    style={styles.dropdownItem}
+                  >
+                    <Text style={[styles.dropdownItemText, isDark ? styles.dropdownTextDark : styles.dropdownTextLight]}>Marigold PH</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => { setActiveBrandFilter('Marigold Collab'); setShowBrandDropdown(false); }}
+                    style={styles.dropdownItem}
+                  >
+                    <Text style={[styles.dropdownItemText, isDark ? styles.dropdownTextDark : styles.dropdownTextLight]}>Marigold Collab</Text>
+                  </Pressable>
+                </View>
+              )}
             </View>
           </View>
+
+          {cameraPermission?.granted && (
+            <Reanimated.View
+              style={[styles.inlineScannerContainer, animatedInlineScannerStyle]}
+            >
+              {showInlineScanner && (
+                <CameraView
+                  style={StyleSheet.absoluteFillObject}
+                  mode="picture"
+                  onBarcodeScanned={({ data, bounds }) => {
+                    if (allowInlineScan && data && data.trim() !== '' && data !== searchQuery) {
+                      if (bounds) {
+                        const cy = bounds.origin.y + bounds.size.height / 2;
+                        // Restrict to visible area of the 130px tall inline camera card
+                        if (cy < 15 || cy > 115) {
+                          return;
+                        }
+                      }
+                      setSearchQuery(data);
+                      setShowInlineScanner(false);
+                    }
+                  }}
+                />
+              )}
+            </Reanimated.View>
+          )}
         </View>
       )}
 
       {/* Screen Render Switcher */}
-      {activeTab === 'home' ? (
-        <HomeScreen
-          records={records}
-          onPlayVideo={(uri) => {
-            const rec = records.find(r => r.videoUri === uri) ?? null;
-            setActiveRecord(rec);
-            setActiveVideoUri(uri);
-          }}
-          isSelectMode={isSelectMode}
-          selectedIds={selectedIds}
-          onToggleSelect={onToggleSelect}
-          onEnterSelectMode={onEnterSelectMode}
-          isDarkMode={isDarkMode}
-        />
-      ) : (
-        <SettingsScreen
-          onResetOnboarding={onResetOnboarding}
-          onClearHistory={async () => {
-            await Storage.clearHistoryRecords();
-            setRecords([]);
-          }}
-          resolution={resolution}
-          onChangeResolution={handleResolutionChange}
-          isDarkMode={isDarkMode}
-          onToggleDarkMode={onToggleDarkMode}
-          compressionQuality={compressionQuality}
-          onChangeCompressionQuality={handleCompressionQualityChange}
-        />
-      )}
+      <TouchableWithoutFeedback
+        onPress={() => {
+          Keyboard.dismiss();
+          setShowModeDropdown(false);
+          setShowBrandDropdown(false);
+        }}
+        accessible={false}
+      >
+        <View style={{ flex: 1 }}>
+          {activeTab === 'home' ? (
+            <HomeScreen
+              records={filteredRecords}
+              onPlayVideo={(uri) => {
+                const rec = records.find(r => r.videoUri === uri) ?? null;
+                setActiveRecord(rec);
+                setActiveVideoUri(uri);
+              }}
+              isSelectMode={isSelectMode}
+              selectedIds={selectedIds}
+              onToggleSelect={onToggleSelect}
+              onEnterSelectMode={onEnterSelectMode}
+              isDarkMode={isDarkMode}
+              searchQuery={searchQuery}
+            />
+          ) : (
+            <SettingsScreen
+              onResetOnboarding={onResetOnboarding}
+              onClearHistory={async () => {
+                await deleteFilesForRecords(records);
+                await Storage.clearHistoryRecords();
+                setRecords([]);
+              }}
+              isDarkMode={isDarkMode}
+              onToggleDarkMode={onToggleDarkMode}
+              compressionQuality={compressionQuality}
+              onChangeCompressionQuality={handleCompressionQualityChange}
+            />
+          )}
+        </View>
+      </TouchableWithoutFeedback>
 
       {/* Bottom Navigation Bar / Selection Bar */}
       {isSelectMode ? (
@@ -601,10 +838,9 @@ export const MainScreen: React.FC<MainScreenProps> = ({
             <MD3Button
               title="Start Scanning"
               onPress={() => {
-                closeBottomSheet();
-                setTimeout(() => {
-                  setShowCamera(true);
-                }, 250);
+                setShowBottomSheet(false);
+                translateY.value = 500;
+                setShowCamera(true);
               }}
               variant="filled"
               size="large"
@@ -618,8 +854,8 @@ export const MainScreen: React.FC<MainScreenProps> = ({
       {/* Full screen Video Player Overlay */}
       {activeVideoUri && (
         <Reanimated.View
-          entering={FadeIn.duration(80)}
-          exiting={FadeOut.duration(80)}
+          entering={FadeIn.duration(200)}
+          exiting={FadeOut.duration(150)}
           style={[StyleSheet.absoluteFillObject, { zIndex: 9999, elevation: 9999 }]}
         >
           <View
@@ -636,7 +872,8 @@ export const MainScreen: React.FC<MainScreenProps> = ({
               {/* Name + Date above the card */}
               {activeRecord && (
                 <Reanimated.View
-                  entering={FadeIn.duration(120)}
+                  entering={FadeIn.duration(200)}
+                  exiting={FadeOut.duration(150)}
                   style={{ marginBottom: 14, alignItems: 'center' }}
                 >
                   <Text
@@ -651,18 +888,18 @@ export const MainScreen: React.FC<MainScreenProps> = ({
                   >
                     {activeRecord.fileName}
                   </Text>
-                  
+
                   {/* Badges row */}
                   {(activeRecord.mode || activeRecord.brand) && (
                     <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8 }}>
                       {activeRecord.mode && (
                         <View style={{
                           backgroundColor: activeRecord.mode === 'packing' ? '#F59E0B' : '#3B82F6',
-                          paddingHorizontal: 12,
-                          paddingVertical: 6,
-                          borderRadius: 8,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: 6,
                         }}>
-                          <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: 'bold' }}>
+                          <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: 'bold' }}>
                             {activeRecord.mode === 'packing' ? 'Packing' : 'Unboxing'}
                           </Text>
                         </View>
@@ -672,11 +909,11 @@ export const MainScreen: React.FC<MainScreenProps> = ({
                           backgroundColor: activeRecord.brand === 'Marigold Philippines' ? '#FFFFFF' : '#EF4444',
                           borderWidth: activeRecord.brand === 'Marigold Philippines' ? 1 : 0,
                           borderColor: '#000000',
-                          paddingHorizontal: 12,
-                          paddingVertical: 6,
-                          borderRadius: 8,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: 6,
                         }}>
-                          <Text style={{ color: activeRecord.brand === 'Marigold Philippines' ? '#000000' : '#FFFFFF', fontSize: 13, fontWeight: 'bold' }}>
+                          <Text style={{ color: activeRecord.brand === 'Marigold Philippines' ? '#000000' : '#FFFFFF', fontSize: 11, fontWeight: 'bold' }}>
                             {activeRecord.brand}
                           </Text>
                         </View>
@@ -712,6 +949,7 @@ export const MainScreen: React.FC<MainScreenProps> = ({
               >
                 <Pressable
                   onPress={() => { }} // Empty callback blocks click bubbling to backdrop
+                  style={{ position: 'relative' }}
                 >
                   <VideoView
                     style={styles.videoPlayerModalPlayer}
@@ -719,6 +957,11 @@ export const MainScreen: React.FC<MainScreenProps> = ({
                     allowsPictureInPicture={false}
                     nativeControls={true}
                   />
+                  {activeRecord && activeRecord.timestamp && (
+                    <View style={styles.timestampOverlayPlayback}>
+                      <Text style={styles.timestampOverlayText}>{activeRecord.timestamp}</Text>
+                    </View>
+                  )}
                 </Pressable>
               </Reanimated.View>
             </View>
@@ -736,7 +979,7 @@ const styles = StyleSheet.create({
   },
   searchHeader: {
     paddingTop: 56,
-    paddingBottom: 16,
+    paddingBottom: 8,
     paddingHorizontal: 16,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
@@ -759,6 +1002,13 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 12,
   },
+  searchInput: {
+    fontFamily: 'sans-serif',
+    fontSize: 16,
+    flex: 1,
+    marginLeft: 12,
+    paddingVertical: 8,
+  },
   avatar: {
     width: 36,
     height: 36,
@@ -771,6 +1021,162 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 14,
     color: '#FFFFFF',
+  },
+  scannerButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  clearSearchButton: {
+    padding: 8,
+    marginRight: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  filterDropdownsRow: {
+    paddingTop: 12,
+    paddingBottom: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    zIndex: 10,
+  },
+  dropdownWrapper: {
+    flex: 1,
+    position: 'relative',
+  },
+  dropdownButton: {
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    paddingHorizontal: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dropdownButtonLight: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+  },
+  dropdownButtonDark: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  dropdownButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'sans-serif-medium',
+  },
+  dropdownTextLight: {
+    color: '#0F172A',
+  },
+  dropdownTextDark: {
+    color: '#FFFFFF',
+  },
+  dropdownMenu: {
+    position: 'absolute',
+    top: 52,
+    left: 0,
+    right: 0,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 8,
+    elevation: 5,
+    shadowColor: '#000000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    zIndex: 999,
+  },
+  dropdownMenuLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0',
+  },
+  dropdownMenuDark: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  dropdownItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+  },
+  dropdownItemText: {
+    fontSize: 16,
+    fontWeight: '500',
+    fontFamily: 'sans-serif',
+  },
+  inlineScannerContainer: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#000000',
+  },
+  inlineViewfinder: {
+    position: 'absolute',
+    top: '20%',
+    left: '15%',
+    right: '15%',
+    bottom: '20%',
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderWidth: 1,
+    borderRadius: 8,
+  },
+  inlineCorner: {
+    position: 'absolute',
+    width: 14,
+    height: 14,
+    borderColor: '#10B981',
+  },
+  inlineTopLeft: {
+    top: -1,
+    left: -1,
+    borderTopWidth: 3,
+    borderLeftWidth: 3,
+    borderTopLeftRadius: 4,
+  },
+  inlineTopRight: {
+    top: -1,
+    right: -1,
+    borderTopWidth: 3,
+    borderRightWidth: 3,
+    borderTopRightRadius: 4,
+  },
+  inlineBottomLeft: {
+    bottom: -1,
+    left: -1,
+    borderBottomWidth: 3,
+    borderLeftWidth: 3,
+    borderBottomLeftRadius: 4,
+  },
+  inlineBottomRight: {
+    bottom: -1,
+    right: -1,
+    borderBottomWidth: 3,
+    borderRightWidth: 3,
+    borderBottomRightRadius: 4,
+  },
+  inlineScanOverlay: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+    right: 12,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  inlineScanOverlayText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+    fontFamily: 'sans-serif-medium',
+    textAlign: 'center',
   },
   settingsHeader: {
     paddingTop: 56,
@@ -837,6 +1243,22 @@ const styles = StyleSheet.create({
     width: SCREEN_WIDTH * 0.9,
     height: (SCREEN_WIDTH * 0.9) * (16 / 9),
     backgroundColor: 'transparent',
+  },
+  timestampOverlayPlayback: {
+    position: 'absolute',
+    bottom: 16,
+    left: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    zIndex: 99,
+  },
+  timestampOverlayText: {
+    color: '#FFFFFF',
+    fontFamily: 'monospace',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   selectionBar: {
     position: 'absolute',

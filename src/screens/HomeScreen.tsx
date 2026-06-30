@@ -25,6 +25,7 @@ interface HomeScreenProps {
   onToggleSelect: (id: string) => void;
   onEnterSelectMode: (initialId: string) => void;
   isDarkMode?: boolean;
+  searchQuery?: string;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -35,6 +36,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onToggleSelect,
   onEnterSelectMode,
   isDarkMode,
+  searchQuery,
 }) => {
   const isSelected = (id: string) => selectedIds.includes(id);
 
@@ -79,11 +81,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           {/* Icon Thumbnail */}
           <View style={[styles.thumbnailContainer, isDark ? styles.thumbnailContainerDark : styles.thumbnailContainerLight]}>
             {item.thumbnailUri ? (
-              <Image source={{ uri: item.thumbnailUri }} style={styles.thumbnailImage} />
+              <Image source={{ uri: item.thumbnailUri }} style={styles.thumbnailImage} resizeMode="cover" />
             ) : item.type === 'QR_CODE' ? (
-              <QrCode size={30} color={isDark ? '#FFFFFF' : '#0F172A'} weight="thin" />
+              <QrCode size={44} color={isDark ? '#FFFFFF' : '#0F172A'} weight="thin" />
             ) : (
-              <Barcode size={30} color={isDark ? '#FFFFFF' : '#0F172A'} weight="thin" />
+              <Barcode size={44} color={isDark ? '#FFFFFF' : '#0F172A'} weight="thin" />
             )}
           </View>
 
@@ -120,12 +122,21 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   return (
     <View style={[styles.container, isDark && { backgroundColor: '#0F172A' }]}>
       {records.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={[styles.emptyText, themeText]}>No scans yet</Text>
-          <Text style={[styles.emptySubtext, themeSubText]}>
-            Tap the camera button in the center of the navigation bar to start.
-          </Text>
-        </View>
+        searchQuery ? (
+          <View style={styles.emptyContainer}>
+            <Text style={[styles.emptyText, themeText]}>No matching records found</Text>
+            <Text style={[styles.emptySubtext, themeSubText]}>
+              Try searching for a different barcode, name, or metadata.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.emptyContainer}>
+            <Text style={[styles.emptyText, themeText]}>No scans yet</Text>
+            <Text style={[styles.emptySubtext, themeSubText]}>
+              Tap the camera button in the center of the navigation bar to start.
+            </Text>
+          </View>
+        )
       ) : (
         <FlatList
           data={records}
@@ -163,7 +174,8 @@ const styles = StyleSheet.create({
   cardPressable: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
   },
   checkboxContainer: {
     marginRight: 16,
@@ -171,13 +183,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   thumbnailContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 12,
+    width: 100,
+    height: 100,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
     borderWidth: 1,
+    overflow: 'hidden',
   },
   thumbnailContainerLight: {
     backgroundColor: '#F8FAFC',
@@ -190,7 +203,7 @@ const styles = StyleSheet.create({
   thumbnailImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 11,
+    borderRadius: 15,
   },
   cardContent: {
     flex: 1,
@@ -220,9 +233,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   tag: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
   tagPacking: {
     backgroundColor: '#F59E0B',
@@ -239,7 +252,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EF4444',
   },
   tagText: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: 'bold',
     fontFamily: 'sans-serif-medium',
   },

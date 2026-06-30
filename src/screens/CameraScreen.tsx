@@ -12,26 +12,56 @@ import * as ImageManipulator from 'expo-image-manipulator';
 interface CameraScreenProps {
   onClose: () => void;
   onSaveSession: (barcode: string, videoUri: string, duration: string, thumbnailUri?: string) => void;
-  resolution: '720p' | '1080p';
+  compressionQuality: 'low' | 'medium' | 'high';
+  initialBarcode?: string;
 }
 
-export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSession, resolution }) => {
+export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSession, compressionQuality, initialBarcode }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isLandscape = screenWidth > screenHeight;
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
-  // Responsive viewfinder sizes
-  const viewfinderWidth = Math.min(screenWidth * 0.75, 550);
-  const viewfinderHeight = Math.min(screenHeight * 0.35, 220);
+  // Responsive viewfinder sizes (Square Viewfinder)
+  const viewfinderSize = Math.min(screenWidth * 0.7, 280);
+  const viewfinderWidth = viewfinderSize;
+  const viewfinderHeight = viewfinderSize;
   const laserLineWidth = viewfinderWidth - 48;
 
-  const [scanState, setScanState] = useState<'scanning' | 'scanned_confirm' | 'ready_to_record' | 'recording' | 'review' | 'saving'>('scanning');
-  const [scannedBarcode, setScannedBarcode] = useState<string | null>(null);
+  const [scanState, setScanState] = useState<'scanning' | 'scanned_confirm' | 'ready_to_record' | 'recording' | 'review' | 'saving'>(initialBarcode ? 'scanned_confirm' : 'scanning');
+  const [scannedBarcode, setScannedBarcode] = useState<string | null>(initialBarcode || null);
   const [recordedVideoUri, setRecordedVideoUri] = useState<string | null>(null);
   const [recordedDuration, setRecordedDuration] = useState<string | null>(null);
   const [recordTimer, setRecordTimer] = useState(0);
   const [flashOn, setFlashOn] = useState(false);
+  const [currentDateTime, setCurrentDateTime] = useState('');
+
+  // Handle real-time timestamp overlay clock during recording
+  useEffect(() => {
+    let clockInterval: NodeJS.Timeout | null = null;
+    if (scanState === 'recording') {
+      const updateClock = () => {
+        const now = new Date();
+        const formatted = now.toLocaleString(undefined, {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true,
+        });
+        setCurrentDateTime(formatted);
+      };
+      updateClock();
+      clockInterval = setInterval(updateClock, 1000);
+    } else if (scanState === 'scanning' || scanState === 'ready_to_record') {
+      setCurrentDateTime('');
+    }
+    return () => {
+      if (clockInterval) clearInterval(clockInterval);
+    };
+  }, [scanState]);
 
   const [cameraMode, setCameraMode] = useState<'picture' | 'video'>('picture');
   const [scannedThumbnailUri, setScannedThumbnailUri] = useState<string | null>(null);
@@ -72,7 +102,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
     };
   }, [scanState]);
 
-  const isScanningRef = useRef(true);
+  const isScanningRef = useRef(!initialBarcode);
 
   const player = useVideoPlayer(recordedVideoUri || '', (p) => {
     p.loop = true;
@@ -155,81 +185,28 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
     );
   }
 
-  // Handle barcode scanned callback
-  const handleBarcodeScanned = ({ data, bounds }: { data: string; bounds: { origin: { x: number; y: number }; size: { width: number; height: number } } }) => {
-    // Check if barcode center is inside the viewfinder FIRST
-    if (viewfinderRect) {
-      const { x, y, width, height } = viewfinderRect;
-      const cx = bounds.origin.x + bounds.size.width / 2;
-      const cy = bounds.origin.y + bounds.size.height / 2;
-      const isInside = cx >= x && cx <= x + width && cy >= y && cy <= y + height;
-      if (!isInside) {
-        frameOpacity.value = withTiming(0, { duration: 200 });
-        return;
-      }
-    }
-
-    // Update frame position in real-time
-    frameX.value = withTiming(bounds.origin.x, { duration: 80 });
-    frameY.value = withTiming(bounds.origin.y, { duration: 80 });
-    frameW.value = withTiming(bounds.size.width, { duration: 80 });
-    frameH.value = withTiming(bounds.size.height, { duration: 80 });
-    frameOpacity.value = withTiming(1, { duration: 120 });
-
-    // Always reset the hide timer (works during both 'scanning' and 'scanned_confirm')
-    if (barcodeHideTimer.current) clearTimeout(barcodeHideTimer.current);
-    barcodeHideTimer.current = setTimeout(() => {
-      frameOpacity.value = withTiming(0, { duration: 250 });
-      // Auto-rescan if barcode left the frame while showing confirm card
-      if (scanStateRef.current === 'scanned_confirm') {
-        isScanningRef.current = true;
-        setScannedBarcode(null);
-        setScanState('scanning');
-        setCameraMode('picture');
-      }
-    }, 600);
-
-    // Only trigger confirm once, on first detection during 'scanning'
-    if (!isScanningRef.current || scanStateRef.current !== 'scanning') return;
-    isScanningRef.current = false;
-    barcodeBoundsRef.current = bounds;
-    setScannedBarcode(data);
-    setScanState('scanned_confirm');
-  };
-
   const cropBarcode = async (photoUri: string, imgW: number, imgH: number) => {
-    const bounds = barcodeBoundsRef.current;
-    if (!bounds) return photoUri;
-
-    // Preview dimensions
+    // Get screen/preview size
     const previewW = screenWidth;
     const previewH = screenHeight;
 
-    // Scale factors
-    const scaleX = imgW / previewW;
-    const scaleY = imgH / previewH;
+    // Calculate scale factor (in portrait, screen width aligns with the smaller dimension of the image)
+    const isImagePortrait = imgH > imgW;
+    const scale = isImagePortrait ? (imgW / previewW) : (imgH / previewW);
 
-    // Add extra padding to crop area so the barcode is framed beautifully
-    const padX = bounds.size.width * 0.15;
-    const padY = bounds.size.height * 0.15;
-
-    let cropX = Math.max(0, (bounds.origin.x - padX) * scaleX);
-    let cropY = Math.max(0, (bounds.origin.y - padY) * scaleY);
-    let cropW = (bounds.size.width + padX * 2) * scaleX;
-    let cropH = (bounds.size.height + padY * 2) * scaleY;
-
-    // Clamp
-    if (cropX + cropW > imgW) cropW = imgW - cropX;
-    if (cropY + cropH > imgH) cropH = imgH - cropY;
+    // Calculate the crop size corresponding to the on-screen square viewfinderSize
+    const cropSize = viewfinderSize * scale;
+    const cropX = (imgW - cropSize) / 2;
+    const cropY = (imgH - cropSize) / 2;
 
     try {
       const actions = [
         {
           crop: {
-            originX: Math.round(cropX),
-            originY: Math.round(cropY),
-            width: Math.round(cropW),
-            height: Math.round(cropH),
+            originX: Math.max(0, Math.round(cropX)),
+            originY: Math.max(0, Math.round(cropY)),
+            width: Math.min(imgW, Math.round(cropSize)),
+            height: Math.min(imgH, Math.round(cropSize)),
           },
         },
       ];
@@ -244,38 +221,77 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
     }
   };
 
+  // Handle barcode scanned callback
+  const handleBarcodeScanned = ({ data, bounds }: { data: string; bounds: { origin: { x: number; y: number }; size: { width: number; height: number } } }) => {
+    // Check if barcode center is inside the viewfinder FIRST
+    if (viewfinderRect) {
+      const { x, y, width, height } = viewfinderRect;
+      const cx = bounds.origin.x + bounds.size.width / 2;
+      const cy = bounds.origin.y + bounds.size.height / 2;
+      const isInside = cx >= x && cx <= x + width && cy >= y && cy <= y + height;
+      if (!isInside) {
+        frameOpacity.value = withTiming(0, { duration: 200 });
+        return;
+      }
+    }
+
+    // Update frame position instantly (prevents animation thrashes at 30Hz)
+    frameX.value = bounds.origin.x;
+    frameY.value = bounds.origin.y;
+    frameW.value = bounds.size.width;
+    frameH.value = bounds.size.height;
+    frameOpacity.value = 1;
+
+    // Always reset the hide timer (works during both 'scanning' and 'scanned_confirm')
+    if (barcodeHideTimer.current) clearTimeout(barcodeHideTimer.current);
+    barcodeHideTimer.current = setTimeout(() => {
+      frameOpacity.value = 0;
+      // Auto-rescan if barcode left the frame while showing confirm card
+      if (scanStateRef.current === 'scanned_confirm') {
+        isScanningRef.current = true;
+        setScannedBarcode(null);
+        setScanState('scanning');
+        setCameraMode('picture');
+      }
+    }, 1500);
+
+    // Only trigger confirm once, on first detection during 'scanning'
+    if (!isScanningRef.current || scanStateRef.current !== 'scanning') return;
+    isScanningRef.current = false;
+    barcodeBoundsRef.current = bounds;
+    setScannedBarcode(data);
+    setScanState('scanned_confirm');
+
+    // Take the picture immediately while aligned in the viewfinder!
+    if (cameraRef.current) {
+      cameraRef.current.takePictureAsync({
+        skipProcessing: true,
+      }).then(async (photo: any) => {
+        if (photo && photo.uri) {
+          const cropped = await cropBarcode(photo.uri, photo.width, photo.height);
+          setScannedThumbnailUri(cropped);
+        }
+      }).catch((err: any) => {
+        console.error("Auto picture capture failed:", err);
+      });
+    }
+  };
+
   // Start recording manually after confirmation
   const handleStartRecording = async () => {
     if (!scannedBarcode) return;
 
-    // 1. Capture barcode photo first
-    let photoUri: string | undefined;
-    if (cameraRef.current) {
-      try {
-        const photo = await cameraRef.current.takePictureAsync({
-          skipProcessing: true,
-        });
-        if (photo && photo.uri) {
-          const cropped = await cropBarcode(photo.uri, photo.width, photo.height);
-          photoUri = cropped;
-          setScannedThumbnailUri(cropped);
-        }
-      } catch (picErr) {
-        console.error("Failed to take barcode picture:", picErr);
-      }
-    }
-
-    // 2. Transition camera to video mode and set recording state
+    // 1. Transition camera to video mode and set recording state
     setCameraMode('video');
     setScanState('recording');
 
-    // 3. Trigger video recording after brief timeout for mode transition
-    setTimeout(async () => {
+    const startRecordingWithRetry = async (retries = 5) => {
       if (cameraRef.current) {
         try {
+          const recordQuality = compressionQuality === 'high' ? '1080p' : compressionQuality === 'medium' ? '720p' : '480p';
           const recordingPromise = cameraRef.current.recordAsync({
             maxDuration: 60,
-            quality: resolution,
+            quality: recordQuality,
             mute: true,
           });
           recordingPromiseRef.current = recordingPromise;
@@ -287,14 +303,25 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
             setRecordedDuration(durationStr);
             setScanState('review');
           }
-        } catch (error) {
-          console.error('Failed to record video', error);
-          isScanningRef.current = true;
-          setScanState('scanning');
-          setCameraMode('picture');
+        } catch (error: any) {
+          console.warn(`Record attempt failed, retries left: ${retries}`, error);
+          const errorMsg = error?.message || '';
+          if (retries > 0 && (errorMsg.includes('not ready') || errorMsg.includes('Ready'))) {
+            setTimeout(() => startRecordingWithRetry(retries - 1), 300);
+          } else {
+            console.error('Failed to record video after retries', error);
+            isScanningRef.current = true;
+            setScanState('scanning');
+            setCameraMode('picture');
+          }
         }
       }
-    }, 350);
+    };
+
+    // 2. Trigger video recording after brief timeout for mode transition
+    setTimeout(() => {
+      startRecordingWithRetry(5);
+    }, 400);
   };
 
   // Stop recording manually
@@ -383,19 +410,27 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
               shadowRadius: 16,
               shadowOffset: { width: 0, height: 6 },
               backgroundColor: '#000000',
+              position: 'relative',
             }}>
               {recordedVideoUri ? (
-                <VideoView
-                  style={{
-                    width: previewVideoWidth,
-                    height: previewVideoHeight,
-                    backgroundColor: '#000000',
-                  }}
-                  player={player}
-                  fullscreenOptions={{ allowFullscreen: false }}
-                  allowsPictureInPicture={false}
-                  nativeControls={true}
-                />
+                <>
+                  <VideoView
+                    style={{
+                      width: previewVideoWidth,
+                      height: previewVideoHeight,
+                      backgroundColor: '#000000',
+                    }}
+                    player={player}
+                    fullscreenOptions={{ allowFullscreen: false }}
+                    allowsPictureInPicture={false}
+                    nativeControls={true}
+                  />
+                  {currentDateTime ? (
+                    <View style={styles.timestampOverlayPlayback}>
+                      <Text style={styles.timestampOverlayText}>{currentDateTime}</Text>
+                    </View>
+                  ) : null}
+                </>
               ) : (
                 <ActivityIndicator size="large" color="#FFFFFF" style={{ padding: 40 }} />
               )}
@@ -420,14 +455,12 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
               </RipplePressable>
               <RipplePressable
                 onPress={() => {
-                  if (scannedBarcode && recordedVideoUri && recordedDuration) {
-                    setScanState('saving');
-                    onSaveSession(scannedBarcode, recordedVideoUri, recordedDuration, scannedThumbnailUri || undefined);
-                  }
+                  onSaveSession(scannedBarcode || '', recordedVideoUri || '', recordedDuration || '', scannedThumbnailUri || undefined);
+                  onClose();
                 }}
                 style={styles.saveBtnOnly}
               >
-                <Check size={30} color="#FFFFFF" weight="bold" />
+                <Check size={26} color="#FFFFFF" weight="bold" />
               </RipplePressable>
             </Animated.View>
           </View>
@@ -438,13 +471,11 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
           <View style={[styles.header, isLandscape && styles.headerLandscape]}>
             {/* Left: Close button */}
             <View style={styles.headerColumnLeft}>
-              <RipplePressable
-                onPress={onClose}
-                disabled={scanState === 'saving'}
-                style={styles.closeBtn}
-              >
-                <X size={26} color="#FFFFFF" weight="bold" />
-              </RipplePressable>
+              {scanState !== 'saving' && (
+                <RipplePressable onPress={onClose} style={styles.closeBtn}>
+                  <X size={22} color="#FFFFFF" weight="bold" />
+                </RipplePressable>
+              )}
             </View>
 
             {/* Center: Timer badge */}
@@ -496,7 +527,11 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
               </Text>
             </View>
           ) : scanState === 'recording' || scanState === 'ready_to_record' ? (
-            null
+            scanState === 'recording' && currentDateTime ? (
+              <View style={styles.timestampOverlayCamera}>
+                <Text style={styles.timestampOverlayText}>{currentDateTime}</Text>
+              </View>
+            ) : null
           ) : (
             <View style={styles.targetContainer}>
               <View style={styles.savingCard}>
@@ -523,7 +558,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
           {/* Floating Confirm Card */}
           {scanState === 'scanned_confirm' && (
             <Animated.View
-              entering={ZoomIn.springify().damping(15).stiffness(120).mass(0.8)}
+              entering={FadeIn.duration(200)}
               exiting={ZoomOut.duration(150)}
               style={[styles.confirmCardCompressed, { bottom: Math.max(insets.bottom + 16, 32) }]}
             >
@@ -1066,5 +1101,30 @@ const styles = StyleSheet.create({
     borderBottomWidth: 3, borderRightWidth: 3,
     borderColor: '#FFD60A',
     borderBottomRightRadius: 5,
+  },
+  timestampOverlayCamera: {
+    position: 'absolute',
+    bottom: 120,
+    left: 24,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  timestampOverlayPlayback: {
+    position: 'absolute',
+    bottom: 16,
+    left: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    zIndex: 99,
+  },
+  timestampOverlayText: {
+    color: '#FFFFFF',
+    fontFamily: 'monospace',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });
