@@ -1,0 +1,144 @@
+name: Build Unsigned iOS Dev Client IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Dev Client IPA
+    runs-on: macos-15
+    permissions:
+      contents: write # Required to create GitHub Releases
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Xcode version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.4'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Get current app version from app.json
+        id: app_version
+        run: |
+          node -e "
+            const app = require('./app.json');
+            const version = app.expo.version || '1.0.0';
+            console.log('App version:', version);
+            const fs = require('fs');
+            fs.appendFileSync(process.env.GITHUB_ENV, 'VERSION=' + version + '\n');
+          "
+
+      - name: Install dependencies
+        run: |
+          set -o pipefail
+          npm install 2>&1 | tee npm_install.log
+
+      - name: Expo Prebuild (Generate iOS folder)
+        run: |
+          set -o pipefail
+          npx expo prebuild --platform ios --clean --no-install 2>&1 | tee prebuild.log
+
+      - name: Install CocoaPods
+        run: |
+          set -o pipefail
+          cd ios
+          pod install --repo-update 2>&1 | tee ../pod_install.log
+
+      - name: Build Unsigned Dev Client App (Debug)
+        run: |
+          set -o pipefail
+          cd ios
+          xcodebuild -workspace DevClient.xcworkspace \
+            -scheme DevClient \
+            -configuration Debug \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" 2>&1 | tee ../xcodebuild.log
+
+      - name: Package into IPA
+        run: |
+          cd ios/build/Build/Products/Debug-iphoneos
+          mkdir Payload
+          mv *.app Payload/
+          zip -qr ../../../../../BetterExpo-DevClient.ipa Payload
+
+      - name: Create GitHub Release for Dev Client
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}-devclient
+          name: BetterExpo Dev Client v${{ env.VERSION }}
+          body: |
+            ## BetterExpo Development Client v${{ env.VERSION }}
+            
+            This is a universal development client IPA preloaded with native libraries (Reanimated, Camera, Local Authentication, Share Extension, SQLite, etc.) matching this template's dependencies.
+            
+            ### Sideload via SideStore / AltStore / Sideloadly
+            Download `BetterExpo-DevClient.ipa` below and sideload it.
+            
+            ### How to use:
+            1. Open the Dev Client app on your device.
+            2. Run `npm run start -- --dev-client` or `pnpm start --dev-client` in your local project directory.
+            3. Connect by scanning the QR code or entering your local bundler URL (e.g. `exp://192.168.X.X:8081`) inside the app.
+          files: |
+            BetterExpo-DevClient.ipa
+          draft: false
+          prerelease: true
+
+      - name: Report Build Errors
+        if: failure()
+        run: |
+          echo "### ❌ Build Failed" >> $GITHUB_STEP_SUMMARY
+          echo "Here is a summary of the errors encountered during the build process:" >> $GITHUB_STEP_SUMMARY
+          
+          # Check npm install log
+          if [ -f npm_install.log ]; then
+            if grep -qi "err" npm_install.log; then
+              echo "#### 📦 npm install errors:" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              grep -i -C 2 "err" npm_install.log | tail -n 25 >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          
+          # Check expo prebuild log
+          if [ -f prebuild.log ]; then
+            if grep -qi "error\|failed" prebuild.log; then
+              echo "#### ⚙️ Expo Prebuild errors:" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              grep -i -C 2 "error\|failed" prebuild.log | tail -n 25 >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          
+          # Check cocoa pods install log
+          if [ -f pod_install.log ]; then
+            if grep -qi "error\|failed" pod_install.log; then
+              echo "#### 🍏 CocoaPods installation errors:" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              grep -i -C 2 "error\|failed" pod_install.log | tail -n 25 >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          # Check xcodebuild log
+          if [ -f xcodebuild.log ]; then
+            echo "#### 🛠️ Xcode compilation errors:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -i -E "error:|failed|clang: error|swiftc: error" xcodebuild.log | tail -n 30 >> $GITHUB_STEP_SUMMARY
+            
+            if [ $(wc -l < $GITHUB_STEP_SUMMARY) -lt 6 ]; then
+              echo "Last 30 lines of compilation output:" >> $GITHUB_STEP_SUMMARY
+              tail -n 30 xcodebuild.log >> $GITHUB_STEP_SUMMARY
+            fi
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi

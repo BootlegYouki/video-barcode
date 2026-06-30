@@ -1,20 +1,20 @@
+import "./global.css";
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 
 export default function App() {
   return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
+    <View className="flex-1 items-center justify-center bg-slate-950 px-6">
+      <View className="items-center">
+        <Text className="text-3xl font-extrabold text-white text-center tracking-tight">
+          Tailwind CSS + Expo
+        </Text>
+        <Text className="text-lg text-slate-400 text-center max-w-sm mt-3">
+          Your styling system is now fully configured with NativeWind v4. Edit <Text className="font-mono text-indigo-400">App.tsx</Text> to start building!
+        </Text>
+      </View>
+      <StatusBar style="light" />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
