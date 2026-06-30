@@ -7,6 +7,8 @@ import { HistoryScreen } from './HistoryScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { CameraScreen } from './CameraScreen';
 
+import { Storage } from '../utils/storage';
+
 interface BarcodeRecord {
   id: string;
   code: string;
@@ -63,6 +65,17 @@ export const MainScreenMock: React.FC<MainScreenMockProps> = ({ onResetOnboardin
   const tabIndex = activeTab === 'home' ? 0 : activeTab === 'history' ? 1 : 2;
   const animatedX = useRef(new Animated.Value(getIndicatorPosition(0))).current;
 
+  // Load history records from AsyncStorage on mount
+  useEffect(() => {
+    const loadRecords = async () => {
+      const stored = await Storage.getHistoryRecords();
+      if (stored && stored.length > 0) {
+        setRecords(stored);
+      }
+    };
+    loadRecords();
+  }, []);
+
   useEffect(() => {
     Animated.spring(animatedX, {
       toValue: getIndicatorPosition(tabIndex),
@@ -72,7 +85,7 @@ export const MainScreenMock: React.FC<MainScreenMockProps> = ({ onResetOnboardin
     }).start();
   }, [tabIndex]);
 
-  const handleSaveSession = (barcode: string, videoUri: string, duration: string) => {
+  const handleSaveSession = async (barcode: string, videoUri: string, duration: string) => {
     const type = barcode.startsWith('http') ? 'QR_CODE' : barcode.length > 10 ? 'EAN-13' : 'CODE-128';
     
     const timestampStr = 'Just now';
@@ -88,7 +101,10 @@ export const MainScreenMock: React.FC<MainScreenMockProps> = ({ onResetOnboardin
       fileName: fileNameStr,
     };
 
-    setRecords([newRecord, ...records]);
+    const updatedRecords = [newRecord, ...records];
+    setRecords(updatedRecords);
+    await Storage.saveHistoryRecords(updatedRecords);
+    
     setShowCamera(false);
     setActiveTab('home');
   };

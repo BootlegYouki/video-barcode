@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { RipplePressable } from '../components/RipplePressable';
 import { MD3Button } from '../components/MD3Button';
 import { CaretRight } from 'phosphor-react-native';
+import { Storage } from '../utils/storage';
 
 interface SettingsScreenProps {
   onResetOnboarding?: () => void;
@@ -10,6 +11,20 @@ interface SettingsScreenProps {
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onResetOnboarding }) => {
   const [isDriveConnected, setIsDriveConnected] = useState(false);
+
+  useEffect(() => {
+    const loadDriveState = async () => {
+      const connected = await Storage.getDriveConnected();
+      setIsDriveConnected(connected);
+    };
+    loadDriveState();
+  }, []);
+
+  const handleToggleDrive = async () => {
+    const nextState = !isDriveConnected;
+    setIsDriveConnected(nextState);
+    await Storage.saveDriveConnected(nextState);
+  };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
@@ -25,7 +40,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onResetOnboardin
           </View>
           <MD3Button
             title={isDriveConnected ? 'Disconnect' : 'Connect'}
-            onPress={() => setIsDriveConnected(!isDriveConnected)}
+            onPress={handleToggleDrive}
             variant={isDriveConnected ? 'outlined' : 'filled'}
             size="normal"
             style={styles.connectBtn}
