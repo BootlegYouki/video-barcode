@@ -147,12 +147,12 @@ jobs:
         run: npm install
 
       - name: Expo Prebuild (Generate iOS folder)
-        run: npx expo prebuild --platform ios --clean
+        run: npx expo prebuild --platform ios --clean --no-install
 
       - name: Install CocoaPods
         run: |
           cd ios
-          pod install
+          pod install --repo-update
 
       - name: Build Unsigned App
         run: |

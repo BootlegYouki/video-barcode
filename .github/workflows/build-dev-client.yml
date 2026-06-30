@@ -56,8 +56,8 @@ jobs:
         run: |
           set -o pipefail
           cd ios
-          xcodebuild -workspace DevClient.xcworkspace \
-            -scheme DevClient \
+          xcodebuild -workspace VideoBarcode.xcworkspace \
+            -scheme VideoBarcode \
             -configuration Debug \
             -sdk iphoneos \
             -derivedDataPath build \
@@ -70,27 +70,27 @@ jobs:
           cd ios/build/Build/Products/Debug-iphoneos
           mkdir Payload
           mv *.app Payload/
-          zip -qr ../../../../../BetterExpo-DevClient.ipa Payload
+          zip -qr ../../../../../VideoBarcode-DevClient.ipa Payload
 
       - name: Create GitHub Release for Dev Client
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}-devclient
-          name: BetterExpo Dev Client v${{ env.VERSION }}
+          name: Video Barcode Dev Client v${{ env.VERSION }}
           body: |
-            ## BetterExpo Development Client v${{ env.VERSION }}
+            ## Video Barcode Development Client v${{ env.VERSION }}
             
-            This is a universal development client IPA preloaded with native libraries (Reanimated, Camera, Local Authentication, Share Extension, SQLite, etc.) matching this template's dependencies.
+            This is a universal development client IPA preloaded with native libraries matching this project's dependencies.
             
             ### Sideload via SideStore / AltStore / Sideloadly
-            Download `BetterExpo-DevClient.ipa` below and sideload it.
+            Download `VideoBarcode-DevClient.ipa` below and sideload it.
             
             ### How to use:
             1. Open the Dev Client app on your device.
             2. Run `npm run start -- --dev-client` or `pnpm start --dev-client` in your local project directory.
             3. Connect by scanning the QR code or entering your local bundler URL (e.g. `exp://192.168.X.X:8081`) inside the app.
           files: |
-            BetterExpo-DevClient.ipa
+            VideoBarcode-DevClient.ipa
           draft: false
           prerelease: true
 
@@ -102,30 +102,30 @@ jobs:
           
           # Check npm install log
           if [ -f npm_install.log ]; then
-            if grep -qi "err" npm_install.log; then
+            if grep -qi "error:\|failed" npm_install.log; then
               echo "#### 📦 npm install errors:" >> $GITHUB_STEP_SUMMARY
               echo '```' >> $GITHUB_STEP_SUMMARY
-              grep -i -C 2 "err" npm_install.log | tail -n 25 >> $GITHUB_STEP_SUMMARY
+              grep -i -C 2 "error:\|failed" npm_install.log | tail -n 25 >> $GITHUB_STEP_SUMMARY
               echo '```' >> $GITHUB_STEP_SUMMARY
             fi
           fi
           
           # Check expo prebuild log
           if [ -f prebuild.log ]; then
-            if grep -qi "error\|failed" prebuild.log; then
+            if grep -qi "error:\|failed" prebuild.log; then
               echo "#### ⚙️ Expo Prebuild errors:" >> $GITHUB_STEP_SUMMARY
               echo '```' >> $GITHUB_STEP_SUMMARY
-              grep -i -C 2 "error\|failed" prebuild.log | tail -n 25 >> $GITHUB_STEP_SUMMARY
+              grep -i -C 2 "error:\|failed" prebuild.log | tail -n 25 >> $GITHUB_STEP_SUMMARY
               echo '```' >> $GITHUB_STEP_SUMMARY
             fi
           fi
           
           # Check cocoa pods install log
           if [ -f pod_install.log ]; then
-            if grep -qi "error\|failed" pod_install.log; then
+            if grep -qi "\[\!\]\|error:\|failed" pod_install.log; then
               echo "#### 🍏 CocoaPods installation errors:" >> $GITHUB_STEP_SUMMARY
               echo '```' >> $GITHUB_STEP_SUMMARY
-              grep -i -C 2 "error\|failed" pod_install.log | tail -n 25 >> $GITHUB_STEP_SUMMARY
+              grep -i -C 2 "\[\!\]\|error:\|failed" pod_install.log | tail -n 25 >> $GITHUB_STEP_SUMMARY
               echo '```' >> $GITHUB_STEP_SUMMARY
             fi
           fi
