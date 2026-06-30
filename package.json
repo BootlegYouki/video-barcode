@@ -21,11 +21,15 @@
     "react-native-compressor": "^2.0.2",
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.0",
+    "react-native-worklets": "0.5.1",
     "tailwindcss": "3.4.17"
   },
   "devDependencies": {
+    "@babel/plugin-transform-class-properties": "^8.0.1",
+    "@babel/plugin-transform-private-methods": "^8.0.1",
+    "@babel/plugin-transform-private-property-in-object": "^8.0.1",
     "@types/react": "~19.1.0",
-    "babel-preset-expo": "^56.0.15",
+    "babel-preset-expo": "~54.0.10",
     "typescript": "~5.9.2"
   },
   "private": true
