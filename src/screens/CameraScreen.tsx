@@ -41,6 +41,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
   const [recordTimer, setRecordTimer] = useState(0);
   const [flashOn, setFlashOn] = useState(false);
   const [currentDateTime, setCurrentDateTime] = useState('');
+  const [progress, setProgress] = useState(0);
 
   // Handle real-time timestamp overlay clock during recording
   useEffect(() => {
@@ -109,6 +110,21 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
     };
   }, [scanState]);
 
+  // Statistics callback to calculate progress percentage dynamically
+  useEffect(() => {
+    FFmpegKitConfig.enableStatisticsCallback((statistics) => {
+      if (timerValRef.current > 0) {
+        const timeMs = statistics.getTime();
+        const totalMs = timerValRef.current * 1000;
+        const pct = Math.min(100, Math.max(0, Math.round((timeMs / totalMs) * 100)));
+        setProgress(pct);
+      }
+    });
+    return () => {
+      FFmpegKitConfig.disableStatistics();
+    };
+  }, []);
+
   const isScanningRef = useRef(!initialBarcode);
 
   const player = useVideoPlayer(recordedVideoUri || '', (p) => {
@@ -124,6 +140,8 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
   const frameW = useSharedValue(0);
   const frameH = useSharedValue(0);
   const frameOpacity = useSharedValue(0);
+
+
 
   const barcodeFrameStyle = useAnimatedStyle(() => ({
     position: 'absolute' as const,
@@ -230,6 +248,11 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
 
   // Handle barcode scanned callback
   const handleBarcodeScanned = ({ data, bounds }: { data: string; bounds: { origin: { x: number; y: number }; size: { width: number; height: number } } }) => {
+    if (scanStateRef.current !== 'scanning' && scanStateRef.current !== 'scanned_confirm') {
+      frameOpacity.value = 0;
+      return;
+    }
+
     // Check if barcode center is inside the viewfinder FIRST
     if (viewfinderRect) {
       const { x, y, width, height } = viewfinderRect;
@@ -288,6 +311,9 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
   const handleStartRecording = async () => {
     if (!scannedBarcode) return;
 
+    // Immediately hide the yellow locating frame
+    frameOpacity.value = 0;
+
     // 1. Transition camera to video mode and set recording state
     setCameraMode('video');
     setScanState('recording');
@@ -298,7 +324,6 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
           const recordQuality = compressionQuality === 'high' ? '1080p' : compressionQuality === 'medium' ? '720p' : '480p';
           recordingStartEpochRef.current = Math.floor(Date.now() / 1000);
           const recordingPromise = cameraRef.current.recordAsync({
-            maxDuration: 60,
             quality: recordQuality,
             mute: true,
           });
@@ -307,7 +332,10 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
           const video = await recordingPromise;
           if (video && video.uri) {
             setScanState('saving');
-            const durationStr = `0:${timerValRef.current.toString().padStart(2, '0')}s`;
+            setProgress(0);
+            const mins = Math.floor(timerValRef.current / 60);
+            const secs = timerValRef.current % 60;
+            const durationStr = `${mins}:${secs.toString().padStart(2, '0')}s`;
             
             try {
               const outputUri = FileSystem.cacheDirectory + 'engraved_' + Date.now() + '.mp4';
@@ -316,12 +344,36 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
               const startEpoch = recordingStartEpochRef.current;
               
               const fontParam = Platform.OS === 'ios'
-                ? "font='Helvetica'"
-                : "fontfile='/system/fonts/Roboto-Regular.ttf'";
+                ? "font=Helvetica"
+                : "fontfile=/system/fonts/Roboto-Regular.ttf";
               
-              const ffmpegCmd = `-y -i "${inputPath}" -vf "drawtext=text='%{pts\\\\:localtime\\\\:${startEpoch}\\\\:%Y-%m-%d %I\\\\:%M\\\\:%S %p}':x=24:y=24:fontsize=20:fontcolor=white:box=1:boxcolor=black@0.4:${fontParam}" -c:a copy "${outputPath}"`;
+              const videoCodec = Platform.OS === 'ios' ? 'h264_videotoolbox' : 'h264_mediacodec';
               
-              const session = await FFmpegKit.execute(ffmpegCmd);
+              const filterScriptUri = FileSystem.cacheDirectory + 'filter_script.txt';
+              const filterScriptPath = filterScriptUri.replace('file://', '');
+              
+              const filterText = `drawtext=text='%{pts\\:localtime\\:${startEpoch}\\:%B %d\\\\,\\\\ %Y %r}':x=24:y=24:fontsize=32:fontcolor=white:box=1:boxcolor=black@0.4:${fontParam}`;
+              
+              await FileSystem.writeAsStringAsync(filterScriptUri, filterText);
+              
+              const ffmpegArgs = [
+                '-y',
+                '-threads', '0',
+                '-i',
+                inputPath,
+                '-filter_script:v',
+                filterScriptPath,
+                '-c:v',
+                videoCodec,
+                ...(Platform.OS === 'ios' ? ['-realtime', '1'] : []),
+                '-b:v',
+                '2M',
+                '-c:a',
+                'copy',
+                outputPath
+              ];
+              
+              const session = await FFmpegKit.executeWithArguments(ffmpegArgs);
               const returnCode = await session.getReturnCode();
               
               if (returnCode.isValueSuccess()) {
@@ -335,6 +387,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
               setRecordedVideoUri(video.uri);
             }
             
+            setProgress(100);
             setRecordedDuration(durationStr);
             setScanState('review');
           }
@@ -456,7 +509,6 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
                       backgroundColor: '#000000',
                     }}
                     player={player}
-                    fullscreenOptions={{ allowFullscreen: false }}
                     allowsPictureInPicture={false}
                     nativeControls={true}
                   />
@@ -557,16 +609,15 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
               </Text>
             </View>
           ) : scanState === 'recording' || scanState === 'ready_to_record' ? (
-            scanState === 'recording' && currentDateTime ? (
-              <View style={styles.timestampOverlayCamera}>
-                <Text style={styles.timestampOverlayText}>{currentDateTime}</Text>
-              </View>
-            ) : null
+            null
           ) : (
             <View style={styles.targetContainer}>
               <View style={styles.savingCard}>
                 <ActivityIndicator size="large" color="#FFFFFF" style={{ marginBottom: 16 }} />
-                <Text style={styles.savingText}>Saving video session...</Text>
+                <Text style={styles.savingText}>Processing: {progress}%</Text>
+                <View style={styles.progressBarContainer}>
+                  <View style={[styles.progressBar, { width: `${progress}%` }]} />
+                </View>
               </View>
             </View>
           )}
@@ -606,7 +657,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
               </View>
               <View style={styles.confirmActionsRowStacked}>
                 <RipplePressable
-                  onPress={() => { frameOpacity.value = withTiming(0, { duration: 200 }); setScanState('ready_to_record'); }}
+                  onPress={() => { frameOpacity.value = 0; setScanState('ready_to_record'); }}
                   style={[styles.startRecBtnCompressed, { marginLeft: 0 }]}
                 >
                   <Text style={styles.startRecBtnTextCompressed}>START RECORDING</Text>
@@ -1156,5 +1207,18 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  progressBarContainer: {
+    width: 200,
+    height: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 3,
+    marginTop: 12,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 3,
   },
 });

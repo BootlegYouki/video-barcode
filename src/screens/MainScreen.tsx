@@ -251,9 +251,10 @@ export const MainScreen: React.FC<MainScreenProps> = ({
 
     let finalVideoUri = videoUri;
     try {
-      if (compressionQuality === 'high') {
-        // Skip compression entirely — preserve the raw 1080p camera output
-        console.log('High quality selected, skipping compression.');
+      const isAlreadyCompressed = videoUri.includes('engraved_');
+      if (compressionQuality === 'high' || isAlreadyCompressed) {
+        // Skip compression entirely — preserve the already processed FFmpeg output or high quality
+        console.log('Skipping compression. Already processed or high quality:', isAlreadyCompressed);
       } else {
         console.log('Compressing video at:', videoUri);
         const targetBitrate = compressionQuality === 'medium' ? 5000000 : 2000000;
@@ -957,11 +958,6 @@ export const MainScreen: React.FC<MainScreenProps> = ({
                     allowsPictureInPicture={false}
                     nativeControls={true}
                   />
-                  {activeRecord && activeRecord.timestamp && (
-                    <View style={styles.timestampOverlayPlayback}>
-                      <Text style={styles.timestampOverlayText}>{activeRecord.timestamp}</Text>
-                    </View>
-                  )}
                 </Pressable>
               </Reanimated.View>
             </View>

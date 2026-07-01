@@ -112,7 +112,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               </View>
             )}
 
-            <Text style={[styles.metaText, themeSubText]}>{item.size ? `${item.size} • ` : ''}{item.duration}</Text>
+            <Text style={[styles.metaText, themeSubText]}>
+              {item.size ? `${item.size} • ` : ''}
+              {(() => {
+                if (!item.duration) return '';
+                const match = item.duration.match(/^0:(\d+)s$/);
+                if (match) {
+                  const totalSecs = parseInt(match[1], 10);
+                  const mins = Math.floor(totalSecs / 60);
+                  const secs = totalSecs % 60;
+                  return `${mins}:${secs.toString().padStart(2, '0')}s`;
+                }
+                return item.duration;
+              })()}
+            </Text>
           </View>
         </RipplePressable>
       </View>
