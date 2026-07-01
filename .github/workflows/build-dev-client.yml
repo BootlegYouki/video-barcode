@@ -39,7 +39,7 @@ jobs:
       - name: Install dependencies
         run: |
           set -o pipefail
-          npm install 2>&1 | tee npm_install.log
+          npm install --legacy-peer-deps 2>&1 | tee npm_install.log
 
       - name: Expo Prebuild (Generate iOS folder)
         run: |

@@ -93,7 +93,7 @@ jobs:
           distribution: 'temurin'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Expo Prebuild (Generate Android folder)
         run: npx expo prebuild --platform android --clean
@@ -144,7 +144,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Expo Prebuild (Generate iOS folder)
         run: npx expo prebuild --platform ios --clean --no-install
