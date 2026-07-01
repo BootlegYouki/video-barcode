@@ -13,16 +13,84 @@ import { FFmpegKit, FFmpegKitConfig } from 'ffmpeg-kit-react-native';
 
 if (Platform.OS === 'ios') {
   FFmpegKitConfig.setFontDirectoryList(["/System/Library/Fonts", "/System/Library/Fonts/Cache"]);
+} else if (Platform.OS === 'android') {
+  FFmpegKitConfig.setFontDirectoryList(["/system/fonts"]);
 }
 
 interface CameraScreenProps {
   onClose: () => void;
-  onSaveSession: (barcode: string, videoUri: string, duration: string, thumbnailUri?: string) => void;
-  compressionQuality: 'low' | 'medium' | 'high';
+  onSaveSession: (barcode: string, videoUri: string, duration: string, thumbnailUri?: string, startEpoch?: number) => void;
   initialBarcode?: string;
 }
 
-export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSession, compressionQuality, initialBarcode }) => {
+interface ReviewPlayerProps {
+  videoUri: string;
+  width: number;
+  height: number;
+  startEpoch: number;
+}
+
+const ReviewPlayer: React.FC<ReviewPlayerProps> = ({ videoUri, width, height, startEpoch }) => {
+  const player = useVideoPlayer(videoUri, (p) => {
+    p.loop = true;
+  });
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      player.play();
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [player]);
+
+  const formatEpoch = (epoch: number) => {
+    const date = new Date(epoch * 1000);
+    // Format to "July 01, 2026 08:30:00 PM"
+    return date.toLocaleString('en-US', {
+      month: 'long',
+      day: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    });
+  };
+
+  return (
+    <View style={{ width, height, position: 'relative' }}>
+      <VideoView
+        style={{
+          width: '100%',
+          height: '100%',
+          backgroundColor: '#000000',
+        }}
+        player={player}
+        allowsPictureInPicture={false}
+        nativeControls={true}
+        surfaceType="textureView"
+      />
+      <View style={{
+        position: 'absolute',
+        top: 24,
+        left: 24,
+        backgroundColor: 'rgba(0, 0, 0, 0.4)',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 4,
+      }}>
+        <Text style={{
+          color: '#FFFFFF',
+          fontSize: 14,
+          fontFamily: Platform.OS === 'ios' ? 'Helvetica' : 'monospace',
+        }}>
+          {formatEpoch(startEpoch)}
+        </Text>
+      </View>
+    </View>
+  );
+};
+
+export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSession, initialBarcode }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isLandscape = screenWidth > screenHeight;
@@ -110,27 +178,13 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
     };
   }, [scanState]);
 
-  // Statistics callback to calculate progress percentage dynamically
-  useEffect(() => {
-    FFmpegKitConfig.enableStatisticsCallback((statistics) => {
-      if (timerValRef.current > 0) {
-        const timeMs = statistics.getTime();
-        const totalMs = timerValRef.current * 1000;
-        const pct = Math.min(100, Math.max(0, Math.round((timeMs / totalMs) * 100)));
-        setProgress(pct);
-      }
-    });
-    return () => {
-      FFmpegKitConfig.disableStatistics();
-    };
-  }, []);
+
 
   const isScanningRef = useRef(!initialBarcode);
+  const scannedBarcodeRef = useRef<string | null>(initialBarcode || null);
+  const isTakingPhotoRef = useRef(false);
 
-  const player = useVideoPlayer(recordedVideoUri || '', (p) => {
-    p.loop = true;
-    p.play();
-  });
+
 
   const innerButtonAnim = useSharedValue(0);
 
@@ -211,27 +265,38 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
   }
 
   const cropBarcode = async (photoUri: string, imgW: number, imgH: number) => {
-    // Get screen/preview size
-    const previewW = screenWidth;
-    const previewH = screenHeight;
-
-    // Calculate scale factor (in portrait, screen width aligns with the smaller dimension of the image)
-    const isImagePortrait = imgH > imgW;
-    const scale = isImagePortrait ? (imgW / previewW) : (imgH / previewW);
-
-    // Calculate the crop size corresponding to the on-screen square viewfinderSize
-    const cropSize = viewfinderSize * scale;
-    const cropX = (imgW - cropSize) / 2;
-    const cropY = (imgH - cropSize) / 2;
-
     try {
+      // First, get the actual dimensions of the decoded bitmap to bypass EXIF rotation bugs
+      const infoResult = await ImageManipulator.manipulateAsync(photoUri, [], { compress: 1.0 });
+      const realW = infoResult.width;
+      const realH = infoResult.height;
+
+      const targetAspectRatio = 180 / 256;
+      
+      // Start with a width that is 65% of the real image width
+      let cropW = Math.round(realW * 0.65);
+      let cropH = Math.round(cropW * targetAspectRatio);
+      
+      // Clamp to ensure it doesn't exceed real image height
+      if (cropH > realH) {
+        cropH = Math.round(realH * 0.65);
+        cropW = Math.round(cropH / targetAspectRatio);
+      }
+      
+      // Absolute boundary safety clamps
+      if (cropW > realW) cropW = realW;
+      if (cropH > realH) cropH = realH;
+      
+      const cropX = Math.max(0, Math.round((realW - cropW) / 2));
+      const cropY = Math.max(0, Math.round((realH - cropH) / 2));
+
       const actions = [
         {
           crop: {
-            originX: Math.max(0, Math.round(cropX)),
-            originY: Math.max(0, Math.round(cropY)),
-            width: Math.min(imgW, Math.round(cropSize)),
-            height: Math.min(imgH, Math.round(cropSize)),
+            originX: cropX,
+            originY: cropY,
+            width: Math.min(realW - cropX, cropW),
+            height: Math.min(realH - cropY, cropH),
           },
         },
       ];
@@ -248,52 +313,60 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
 
   // Handle barcode scanned callback
   const handleBarcodeScanned = ({ data, bounds }: { data: string; bounds: { origin: { x: number; y: number }; size: { width: number; height: number } } }) => {
-    if (scanStateRef.current !== 'scanning' && scanStateRef.current !== 'scanned_confirm') {
-      frameOpacity.value = 0;
-      return;
+    if (scanStateRef.current !== 'scanning' && scanStateRef.current !== 'scanned_confirm') return;
+
+    // Verify barcode center is aligned with the center viewfinder
+    const cx = bounds.origin.x + bounds.size.width / 2;
+    const cy = bounds.origin.y + bounds.size.height / 2;
+    let isInside = false;
+
+    // Detect if bounds are in raw sensor pixels (usually > screenWidth/Height)
+    const isSensorScale = bounds.origin.x > screenWidth || bounds.origin.y > screenHeight;
+
+    if (isSensorScale) {
+      // In sensor pixels, standard camera frames are landscape (larger width, smaller height)
+      const largerVal = Math.max(cx, cy);
+      const smallerVal = Math.min(cx, cy);
+      
+      // Check if larger coordinate is in the middle 50% of 1920 (or 1280)
+      const isLargerOk = largerVal > 400 && largerVal < 1500;
+      // Check if smaller coordinate is in the middle 50% of 1080 (or 720)
+      const isSmallerOk = smallerVal > 200 && smallerVal < 900;
+      
+      isInside = isLargerOk && isSmallerOk;
+    } else {
+      // In screen points (iOS and aligned Android devices)
+      const minX = (screenWidth - viewfinderWidth) / 2;
+      const maxX = minX + viewfinderWidth;
+      const minY = (screenHeight - viewfinderHeight) / 2;
+      const maxY = minY + viewfinderHeight;
+
+      // Allow a 40px padding tolerance around the viewfinder to make scanning user-friendly
+      isInside = cx >= (minX - 40) && cx <= (maxX + 40) && cy >= (minY - 40) && cy <= (maxY + 40);
     }
 
-    // Check if barcode center is inside the viewfinder FIRST
-    if (viewfinderRect) {
-      const { x, y, width, height } = viewfinderRect;
-      const cx = bounds.origin.x + bounds.size.width / 2;
-      const cy = bounds.origin.y + bounds.size.height / 2;
-      const isInside = cx >= x && cx <= x + width && cy >= y && cy <= y + height;
-      if (!isInside) {
-        frameOpacity.value = withTiming(0, { duration: 200 });
-        return;
-      }
-    }
+    if (!isInside) return;
 
-    // Update frame position instantly (prevents animation thrashes at 30Hz)
-    frameX.value = bounds.origin.x;
-    frameY.value = bounds.origin.y;
-    frameW.value = bounds.size.width;
-    frameH.value = bounds.size.height;
-    frameOpacity.value = 1;
-
-    // Always reset the hide timer (works during both 'scanning' and 'scanned_confirm')
+    // Reset the 2-second hide timer since a barcode is active in the camera frame
     if (barcodeHideTimer.current) clearTimeout(barcodeHideTimer.current);
     barcodeHideTimer.current = setTimeout(() => {
-      frameOpacity.value = 0;
-      // Auto-rescan if barcode left the frame while showing confirm card
       if (scanStateRef.current === 'scanned_confirm') {
-        isScanningRef.current = true;
+        scannedBarcodeRef.current = null;
         setScannedBarcode(null);
         setScanState('scanning');
         setCameraMode('picture');
       }
-    }, 1500);
+    }, 2000);
 
-    // Only trigger confirm once, on first detection during 'scanning'
-    if (!isScanningRef.current || scanStateRef.current !== 'scanning') return;
-    isScanningRef.current = false;
+    if (scannedBarcodeRef.current === data) return;
+    scannedBarcodeRef.current = data;
     barcodeBoundsRef.current = bounds;
     setScannedBarcode(data);
     setScanState('scanned_confirm');
 
     // Take the picture immediately while aligned in the viewfinder!
-    if (cameraRef.current) {
+    if (cameraRef.current && !isTakingPhotoRef.current) {
+      isTakingPhotoRef.current = true;
       cameraRef.current.takePictureAsync({
         skipProcessing: true,
       }).then(async (photo: any) => {
@@ -303,6 +376,8 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
         }
       }).catch((err: any) => {
         console.error("Auto picture capture failed:", err);
+      }).finally(() => {
+        isTakingPhotoRef.current = false;
       });
     }
   };
@@ -321,7 +396,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
     const startRecordingWithRetry = async (retries = 5) => {
       if (cameraRef.current) {
         try {
-          const recordQuality = compressionQuality === 'high' ? '1080p' : compressionQuality === 'medium' ? '720p' : '480p';
+          const recordQuality = '720p';
           recordingStartEpochRef.current = Math.floor(Date.now() / 1000);
           const recordingPromise = cameraRef.current.recordAsync({
             quality: recordQuality,
@@ -331,63 +406,11 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
 
           const video = await recordingPromise;
           if (video && video.uri) {
-            setScanState('saving');
-            setProgress(0);
             const mins = Math.floor(timerValRef.current / 60);
             const secs = timerValRef.current % 60;
             const durationStr = `${mins}:${secs.toString().padStart(2, '0')}s`;
             
-            try {
-              const outputUri = FileSystem.cacheDirectory + 'engraved_' + Date.now() + '.mp4';
-              const inputPath = video.uri.replace('file://', '');
-              const outputPath = outputUri.replace('file://', '');
-              const startEpoch = recordingStartEpochRef.current;
-              
-              const fontParam = Platform.OS === 'ios'
-                ? "font=Helvetica"
-                : "fontfile=/system/fonts/Roboto-Regular.ttf";
-              
-              const videoCodec = Platform.OS === 'ios' ? 'h264_videotoolbox' : 'h264_mediacodec';
-              
-              const filterScriptUri = FileSystem.cacheDirectory + 'filter_script.txt';
-              const filterScriptPath = filterScriptUri.replace('file://', '');
-              
-              const filterText = `drawtext=text='%{pts\\:localtime\\:${startEpoch}\\:%B %d\\\\,\\\\ %Y %r}':x=24:y=24:fontsize=32:fontcolor=white:box=1:boxcolor=black@0.4:${fontParam}`;
-              
-              await FileSystem.writeAsStringAsync(filterScriptUri, filterText);
-              
-              const ffmpegArgs = [
-                '-y',
-                '-threads', '0',
-                '-i',
-                inputPath,
-                '-filter_script:v',
-                filterScriptPath,
-                '-c:v',
-                videoCodec,
-                ...(Platform.OS === 'ios' ? ['-realtime', '1'] : []),
-                '-b:v',
-                '2M',
-                '-c:a',
-                'copy',
-                outputPath
-              ];
-              
-              const session = await FFmpegKit.executeWithArguments(ffmpegArgs);
-              const returnCode = await session.getReturnCode();
-              
-              if (returnCode.isValueSuccess()) {
-                setRecordedVideoUri(outputUri);
-              } else {
-                console.warn('FFmpeg failed, falling back to raw video:', await session.getFailStackTrace());
-                setRecordedVideoUri(video.uri);
-              }
-            } catch (ffmpegErr) {
-              console.error('FFmpeg timestamp engraving error:', ffmpegErr);
-              setRecordedVideoUri(video.uri);
-            }
-            
-            setProgress(100);
+            setRecordedVideoUri(video.uri);
             setRecordedDuration(durationStr);
             setScanState('review');
           }
@@ -434,46 +457,20 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
 
   return (
     <View style={styles.container}>
-      <CameraView
-        style={StyleSheet.absoluteFillObject}
-        mode={cameraMode}
-        ref={cameraRef}
-        mute={true}
-        enableTorch={flashOn}
-        onBarcodeScanned={handleBarcodeScanned}
-      />
-
-      {/* Real-time barcode tracking frame — corner L-bracket style */}
-      <Animated.View style={barcodeFrameStyle} pointerEvents="none">
-        <View style={styles.barcodeCornerTL} />
-        <View style={styles.barcodeCornerTR} />
-        <View style={styles.barcodeCornerBL} />
-        <View style={styles.barcodeCornerBR} />
-      </Animated.View>
-
-      {/* Dim overlay — 4 panels surrounding the viewfinder cutout */}
-      {(scanState === 'scanning' || scanState === 'scanned_confirm') && viewfinderRect && (() => {
-        const { x, y, width, height } = viewfinderRect;
-        return (
-          <>
-            {/* 4 dim panels */}
-            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: y, backgroundColor: 'rgba(0,0,0,0.55)' }} pointerEvents="none" />
-            <View style={{ position: 'absolute', top: y + height, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.55)' }} pointerEvents="none" />
-            <View style={{ position: 'absolute', top: y, left: 0, width: x, height, backgroundColor: 'rgba(0,0,0,0.55)' }} pointerEvents="none" />
-            <View style={{ position: 'absolute', top: y, left: x + width, right: 0, height, backgroundColor: 'rgba(0,0,0,0.55)' }} pointerEvents="none" />
-          </>
-        );
-      })()}
-
-      {/* If we are in review state, we cover the camera with a full-screen BlurView! */}
-      {scanState === 'review' && (
-        <BlurView
-          intensity={65}
-          tint="default"
-          experimentalBlurMethod="dimezisBlurView"
+      {scanState !== 'review' && (
+        <CameraView
           style={StyleSheet.absoluteFillObject}
+          mode={cameraMode}
+          ref={cameraRef}
+          mute={true}
+          enableTorch={flashOn}
+          onBarcodeScanned={handleBarcodeScanned}
         />
       )}
+
+
+
+
 
       {scanState === 'review' ? (
         <View style={[
@@ -489,34 +486,16 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
 
           {/* Massive Video Player */}
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', zIndex: 10 }}>
-            <View style={{
-              borderRadius: 16,
-              overflow: 'hidden',
-              elevation: 8,
-              shadowColor: '#000000',
-              shadowOpacity: 0.15,
-              shadowRadius: 16,
-              shadowOffset: { width: 0, height: 6 },
-              backgroundColor: '#000000',
-              position: 'relative',
-            }}>
-              {recordedVideoUri ? (
-                <>
-                  <VideoView
-                    style={{
-                      width: previewVideoWidth,
-                      height: previewVideoHeight,
-                      backgroundColor: '#000000',
-                    }}
-                    player={player}
-                    allowsPictureInPicture={false}
-                    nativeControls={true}
-                  />
-                </>
-              ) : (
-                <ActivityIndicator size="large" color="#FFFFFF" style={{ padding: 40 }} />
-              )}
-            </View>
+            {recordedVideoUri ? (
+              <ReviewPlayer
+                videoUri={recordedVideoUri}
+                width={previewVideoWidth}
+                height={previewVideoHeight}
+                startEpoch={recordingStartEpochRef.current}
+              />
+            ) : (
+              <ActivityIndicator size="large" color="#FFFFFF" style={{ padding: 40 }} />
+            )}
           </View>
 
           {/* Footer with RETAKE and SAVE buttons */}
@@ -537,7 +516,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
               </RipplePressable>
               <RipplePressable
                 onPress={() => {
-                  onSaveSession(scannedBarcode || '', recordedVideoUri || '', recordedDuration || '', scannedThumbnailUri || undefined);
+                  onSaveSession(scannedBarcode || '', recordedVideoUri || '', recordedDuration || '', scannedThumbnailUri || undefined, recordingStartEpochRef.current);
                   onClose();
                 }}
                 style={styles.saveBtnOnly}
@@ -587,8 +566,8 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
           </View>
 
           {/* Viewfinder Target (Only show during scanning) */}
-          {scanState === 'scanning' || scanState === 'scanned_confirm' ? (
-            <View style={styles.targetContainer}>
+          {(scanState === 'scanning' || scanState === 'scanned_confirm') ? (
+            <View style={styles.targetContainer} pointerEvents="none">
               <View
                 ref={viewfinderRef}
                 onLayout={() => {
@@ -604,9 +583,6 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
                 <View style={[styles.corner, styles.bottomLeft]} />
                 <View style={[styles.corner, styles.bottomRight]} />
               </View>
-              <Text style={styles.instructionText}>
-                Align barcode within target frame
-              </Text>
             </View>
           ) : scanState === 'recording' || scanState === 'ready_to_record' ? (
             null
@@ -639,6 +615,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
           {/* Floating Confirm Card */}
           {scanState === 'scanned_confirm' && (
             <Animated.View
+              key={scannedBarcode || 'confirm-card'}
               entering={FadeIn.duration(200)}
               exiting={ZoomOut.duration(150)}
               style={[styles.confirmCardCompressed, { bottom: Math.max(insets.bottom + 16, 32) }]}
@@ -658,9 +635,9 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
               <View style={styles.confirmActionsRowStacked}>
                 <RipplePressable
                   onPress={() => { frameOpacity.value = 0; setScanState('ready_to_record'); }}
-                  style={[styles.startRecBtnCompressed, { marginLeft: 0 }]}
+                  style={[styles.startRecBtnCompressed, { marginLeft: 0, flex: 1 }]}
                 >
-                  <Text style={styles.startRecBtnTextCompressed}>START RECORDING</Text>
+                  <Text style={styles.startRecBtnTextCompressed}>CONFIRM</Text>
                 </RipplePressable>
               </View>
             </Animated.View>
@@ -794,8 +771,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   targetContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 2,
   },
   viewfinderContainer: {
     width: 256,

@@ -35,6 +35,7 @@ export const MD3Button: React.FC<MD3ButtonProps> = ({
   let rippleColor = 'rgba(255, 255, 255, 0.16)';
 
   const isDark = !!isDarkMode;
+  let wrapperBorderStyle: ViewStyle = {};
 
   if (disabled) {
     containerStyle = variant === 'outlined' || variant === 'text'
@@ -42,8 +43,10 @@ export const MD3Button: React.FC<MD3ButtonProps> = ({
       : { backgroundColor: isDark ? '#334155' : '#E2E8F0' };
     textStyle.color = isDark ? '#475569' : '#94A3B8';
     if (variant === 'outlined') {
-      containerStyle.borderWidth = 1;
-      containerStyle.borderColor = isDark ? '#475569' : '#CBD5E1';
+      wrapperBorderStyle = {
+        borderWidth: 1,
+        borderColor: isDark ? '#475569' : '#CBD5E1',
+      };
     }
   } else {
     switch (variant) {
@@ -53,8 +56,8 @@ export const MD3Button: React.FC<MD3ButtonProps> = ({
         rippleColor = 'rgba(255, 255, 255, 0.08)';
         break;
       case 'outlined':
-        containerStyle = {
-          backgroundColor: 'transparent',
+        containerStyle = { backgroundColor: 'transparent' };
+        wrapperBorderStyle = {
           borderWidth: 1,
           borderColor: isDark ? '#FFFFFF' : '#000000',
         };
@@ -85,14 +88,13 @@ export const MD3Button: React.FC<MD3ButtonProps> = ({
   }
 
   return (
-    <View style={[styles.wrapper, style]}>
+    <View style={[styles.wrapper, wrapperBorderStyle, containerStyle, style]}>
       <RipplePressable
         onPress={onPress}
         disabled={disabled || loading}
         rippleColor={rippleColor}
         style={[
           styles.button,
-          containerStyle,
           { height, paddingHorizontal }
         ]}
       >

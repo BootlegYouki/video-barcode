@@ -32,13 +32,15 @@ export const BottomNavigator: React.FC<BottomNavigatorProps> = ({
 
       {/* Center Floating FAB Button Wrapper */}
       <View style={styles.fabWrapper} pointerEvents="box-none">
-        <RipplePressable
-          onPress={onCameraPress}
-          style={[styles.fabButton, { backgroundColor: themeFABBg }]}
-          rippleColor={isDark ? "rgba(0, 0, 0, 0.2)" : "rgba(255, 255, 255, 0.2)"}
-        >
-          <Plus size={30} color={themeFABColor} weight="bold" />
-        </RipplePressable>
+        <View style={[styles.fabButtonContainer, { backgroundColor: themeFABBg }]}>
+          <RipplePressable
+            onPress={onCameraPress}
+            style={styles.fabButton}
+            rippleColor={isDark ? "rgba(0, 0, 0, 0.2)" : "rgba(255, 255, 255, 0.2)"}
+          >
+            <Plus size={30} color={themeFABColor} weight="bold" />
+          </RipplePressable>
+        </View>
       </View>
 
       {/* Tab Bar Bar */}
@@ -123,11 +125,15 @@ const styles = StyleSheet.create({
     top: -41,
     left: 0,
   },
-  fabButton: {
-    backgroundColor: '#000000',
+  fabButtonContainer: {
     width: 68,
     height: 68,
     borderRadius: 34,
+    overflow: 'hidden',
+  },
+  fabButton: {
+    width: '100%',
+    height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
   },

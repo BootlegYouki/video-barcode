@@ -1,7 +1,9 @@
-import React, { useRef, useState } from 'react';
-import { View, Text, ScrollView, Dimensions, NativeSyntheticEvent, NativeScrollEvent, StyleSheet } from 'react-native';
+import React, { useRef, useState, useEffect } from 'react';
+import { View, Text, ScrollView, Dimensions, NativeSyntheticEvent, NativeScrollEvent, StyleSheet, Platform, Alert } from 'react-native';
 import { MD3Button } from '../components/MD3Button';
-import { Barcode, VideoCamera, FloppyDisk, GoogleDriveLogo, Package } from 'phosphor-react-native';
+import { Barcode, VideoCamera, FloppyDisk, GoogleDriveLogo, Package, Folder } from 'phosphor-react-native';
+import * as FileSystem from 'expo-file-system/legacy';
+import { Storage } from '../utils/storage';
 
 interface OnboardingScreenProps {
   onComplete: () => void;
@@ -12,6 +14,17 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [folderUri, setFolderUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadFolder = async () => {
+      if (Platform.OS === 'android') {
+        const storedUri = await Storage.getPublicDirectoryUri();
+        setFolderUri(storedUri);
+      }
+    };
+    loadFolder();
+  }, []);
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const scrollOffset = event.nativeEvent.contentOffset.x;
@@ -22,7 +35,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
   };
 
   const handleNext = () => {
-    if (activeIndex < 4) {
+    if (activeIndex < slides.length - 1) {
       scrollViewRef.current?.scrollTo({
         x: (activeIndex + 1) * SCREEN_WIDTH,
         animated: true,
@@ -32,6 +45,99 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
       onComplete();
     }
   };
+
+  const handleSelectFolder = async () => {
+    try {
+      const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+      if (permissions.granted) {
+        await Storage.savePublicDirectoryUri(permissions.directoryUri);
+        setFolderUri(permissions.directoryUri);
+        Alert.alert('Folder Connected', 'Videos will now be exported to the selected folder and will be accessible in your Android Files manager.');
+      }
+    } catch (err) {
+      console.error('Failed to select public folder', err);
+      Alert.alert('Selection Failed', 'Failed to request folder permissions.');
+    }
+  };
+
+  const getReadablePath = (uri: string) => {
+    try {
+      const decoded = decodeURIComponent(uri);
+      if (decoded.includes('primary:')) {
+        const parts = decoded.split('primary:');
+        if (parts.length > 1) {
+          const folderPath = parts[1].replace(/\//g, ' > ');
+          return `Internal Storage > ${folderPath}`;
+        }
+      }
+      const lastSlash = decoded.lastIndexOf('/');
+      if (lastSlash !== -1) {
+        const folderName = decoded.substring(lastSlash + 1).replace(/:/g, ' > ').replace(/\//g, ' > ');
+        return folderName || 'Connected Folder';
+      }
+      return 'Connected Folder';
+    } catch (err) {
+      return 'Connected Folder';
+    }
+  };
+
+  const slides = [
+    {
+      key: 'welcome',
+      icon: <Package size={136} color="#000000" weight="bold" />,
+      title: 'Welcome',
+      desc: 'Verify and track your parcels seamlessly with automated video recording and barcode logging.',
+    },
+    {
+      key: 'scan',
+      icon: <Barcode size={136} color="#000000" weight="bold" />,
+      title: 'Scan Parcel',
+      desc: 'Scan the barcode of the parcel to identify and register it in the system.',
+    },
+    {
+      key: 'record',
+      icon: <VideoCamera size={136} color="#000000" weight="bold" />,
+      title: 'Record Video',
+      desc: 'Once the barcode is scanned, the app automatically starts recording the handling process.',
+    },
+    {
+      key: 'save',
+      icon: <FloppyDisk size={136} color="#000000" weight="bold" />,
+      title: 'Save Video',
+      desc: 'After the recording is stopped, the video is saved and linked directly to the parcel\'s barcode.',
+    },
+    {
+      key: 'cloud',
+      icon: <GoogleDriveLogo size={136} color="#000000" weight="bold" />,
+      title: 'Cloud Sync',
+      desc: 'Optionally connect your account to automatically upload and back up parcel videos to Google Drive.',
+    },
+    ...(Platform.OS === 'android' ? [{
+      key: 'folder',
+      icon: <Folder size={136} color="#000000" weight="bold" />,
+      title: 'Choose Export Folder',
+      desc: 'Choose a folder in your Files app to export and access your video recordings.',
+      isFolderSetup: true,
+    }] : []),
+  ];
+
+  const isFolderSlide = slides[activeIndex]?.isFolderSetup;
+
+  let buttonTitle = 'Next';
+  let buttonPress = handleNext;
+
+  if (isFolderSlide) {
+    if (!folderUri) {
+      buttonTitle = 'Connect Folder';
+      buttonPress = handleSelectFolder;
+    } else {
+      buttonTitle = 'Get Started';
+      buttonPress = onComplete;
+    }
+  } else if (activeIndex === slides.length - 1) {
+    buttonTitle = 'Get Started';
+    buttonPress = onComplete;
+  }
 
   return (
     <View style={styles.container}>
@@ -49,65 +155,28 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
         onMomentumScrollEnd={handleScroll}
         style={styles.pager}
       >
-        {/* Step 1: Welcome */}
-        <View style={{ width: SCREEN_WIDTH, ...styles.slide }}>
-          <View style={styles.iconContainer}>
-            <Package size={136} color="#000000" weight="bold" />
+        {slides.map((slide) => (
+          <View key={slide.key} style={{ width: SCREEN_WIDTH, ...styles.slide }}>
+            <View style={styles.iconContainer}>
+              {slide.icon}
+            </View>
+            <Text style={styles.title}>{slide.title}</Text>
+            <Text style={styles.description}>{slide.desc}</Text>
+            
+            {slide.isFolderSetup && folderUri && (
+              <View style={styles.folderSetupContainer}>
+                <Text style={styles.connectedText} numberOfLines={1} ellipsizeMode="middle">
+                  Connected: {getReadablePath(folderUri)}
+                </Text>
+              </View>
+            )}
           </View>
-          <Text style={styles.title}>Welcome</Text>
-          <Text style={styles.description}>
-            Verify and track your parcels seamlessly with automated video recording and barcode logging.
-          </Text>
-        </View>
-
-        {/* Step 2: Scan */}
-        <View style={{ width: SCREEN_WIDTH, ...styles.slide }}>
-          <View style={styles.iconContainer}>
-            <Barcode size={136} color="#000000" weight="bold" />
-          </View>
-          <Text style={styles.title}>Scan Parcel</Text>
-          <Text style={styles.description}>
-            Scan the barcode of the parcel to identify and register it in the system.
-          </Text>
-        </View>
-
-        {/* Step 3: Record */}
-        <View style={{ width: SCREEN_WIDTH, ...styles.slide }}>
-          <View style={styles.iconContainer}>
-            <VideoCamera size={136} color="#000000" weight="bold" />
-          </View>
-          <Text style={styles.title}>Record Video</Text>
-          <Text style={styles.description}>
-            Once the barcode is scanned, the app automatically starts recording the handling process.
-          </Text>
-        </View>
-
-        {/* Step 4: Save */}
-        <View style={{ width: SCREEN_WIDTH, ...styles.slide }}>
-          <View style={styles.iconContainer}>
-            <FloppyDisk size={136} color="#000000" weight="bold" />
-          </View>
-          <Text style={styles.title}>Save Video</Text>
-          <Text style={styles.description}>
-            After the recording is stopped, the video is saved and linked directly to the parcel's barcode.
-          </Text>
-        </View>
-
-        {/* Step 5: Google Drive Sync */}
-        <View style={{ width: SCREEN_WIDTH, ...styles.slide }}>
-          <View style={styles.iconContainer}>
-            <GoogleDriveLogo size={136} color="#000000" weight="bold" />
-          </View>
-          <Text style={styles.title}>Cloud Sync</Text>
-          <Text style={styles.description}>
-            Optionally connect your account to automatically upload and back up parcel videos to Google Drive.
-          </Text>
-        </View>
+        ))}
       </ScrollView>
 
       {/* Progress Dots */}
       <View style={styles.dotsContainer}>
-        {[0, 1, 2, 3, 4].map((i) => (
+        {slides.map((_, i) => (
           <View
             key={i}
             style={[
@@ -121,8 +190,8 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
       {/* Action Button */}
       <View style={styles.footer}>
         <MD3Button
-          title={activeIndex === 4 ? 'Get Started' : 'Next'}
-          onPress={handleNext}
+          title={buttonTitle}
+          onPress={buttonPress}
           variant="filled"
           size="large"
           style={styles.button}
@@ -182,6 +251,28 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: 320,
     lineHeight: 26,
+    marginBottom: 12,
+  },
+  folderSetupContainer: {
+    width: '100%',
+    maxWidth: 280,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  connectedBox: {
+    width: '100%',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+  },
+  connectedText: {
+    fontFamily: 'sans-serif',
+    fontSize: 14,
+    color: '#1E293B',
+    textAlign: 'center',
   },
   dotsContainer: {
     flexDirection: 'row',

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, PressableProps, Platform, StyleProp, ViewStyle } from 'react-native';
+import { Pressable, PressableProps, Platform, StyleProp, ViewStyle, StyleSheet } from 'react-native';
 
 interface RipplePressableProps extends PressableProps {
   rippleColor?: string;
@@ -24,7 +24,8 @@ export const RipplePressable: React.FC<RipplePressableProps> = ({
       style={({ pressed }) => {
         const iosStyle = Platform.OS !== 'android' && pressed ? { opacity: 0.7 } : {};
         const baseStyle = typeof style === 'function' ? style({ pressed }) : style;
-        return [baseStyle, iosStyle];
+        const flatStyle = StyleSheet.flatten(baseStyle);
+        return [flatStyle, iosStyle];
       }}
       {...props}
     >

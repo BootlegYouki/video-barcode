@@ -121,4 +121,24 @@ export const Storage = {
       console.error('Failed to clear storage', e);
     }
   },
+
+  savePublicDirectoryUri: async (uri: string | null) => {
+    try {
+      if (uri) {
+        await AsyncStorage.setItem('@public_directory_uri', uri);
+      } else {
+        await AsyncStorage.removeItem('@public_directory_uri');
+      }
+    } catch (e) {
+      console.error('Failed to save public directory uri', e);
+    }
+  },
+
+  getPublicDirectoryUri: async (): Promise<string | null> => {
+    try {
+      return await AsyncStorage.getItem('@public_directory_uri');
+    } catch (e) {
+      return null;
+    }
+  },
 };

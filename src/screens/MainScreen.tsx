@@ -1,17 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, Animated, Dimensions, Pressable, Alert, TouchableWithoutFeedback, LayoutChangeEvent, PanResponder, TextInput, Keyboard, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, Pressable, Alert, TouchableWithoutFeedback, TextInput, Keyboard, ActivityIndicator, Platform } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Reanimated, { FadeIn, FadeOut, ZoomIn, ZoomOut, SlideInDown, SlideOutDown, useSharedValue, useAnimatedStyle, withTiming, runOnJS, interpolate } from 'react-native-reanimated';
+import Reanimated, { FadeIn, FadeOut, ZoomIn, ZoomOut, useSharedValue, useAnimatedStyle, withTiming, interpolate } from 'react-native-reanimated';
 import { RipplePressable } from '../components/RipplePressable';
-import { MagnifyingGlass, X, Trash, Barcode, CaretDown } from 'phosphor-react-native';
+import { MagnifyingGlass, X, Trash, Barcode } from 'phosphor-react-native';
 import { BottomNavigator } from '../components/BottomNavigator';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { HomeScreen } from './HomeScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { CameraScreen } from './CameraScreen';
-import { MD3Button } from '../components/MD3Button';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { FFmpegKit, FFmpegKitConfig, ReturnCode } from 'ffmpeg-kit-react-native';
 
 import { Storage } from '../utils/storage';
 
@@ -25,11 +25,34 @@ interface BarcodeRecord {
   duration: string;
   fileName: string;
   videoUri?: string;
+  rawVideoUri?: string;
   size?: string;
-  mode?: 'packing' | 'unboxing';
-  brand?: 'Marigold Philippines' | 'Marigold Collab';
   thumbnailUri?: string;
+  processingState?: 'idle' | 'processing' | 'paused' | 'completed' | 'failed';
+  processingProgress?: number;
+  startEpoch?: number;
 }
+
+interface HistoryPlayerProps {
+  videoUri: string;
+}
+
+const HistoryPlayer: React.FC<HistoryPlayerProps> = ({ videoUri }) => {
+  const player = useVideoPlayer(videoUri, (p) => {
+    p.loop = true;
+    p.play();
+  });
+
+  return (
+    <VideoView
+      style={styles.videoPlayerModalPlayer}
+      player={player}
+      allowsPictureInPicture={false}
+      nativeControls={true}
+      surfaceType="textureView"
+    />
+  );
+};
 
 const MOCK_RECORDS: BarcodeRecord[] = [];
 
@@ -54,17 +77,12 @@ export const MainScreen: React.FC<MainScreenProps> = ({
   const [activeRecord, setActiveRecord] = useState<BarcodeRecord | null>(null);
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [compressionQuality, setCompressionQuality] = useState<'low' | 'medium' | 'high'>('medium');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showInlineScanner, setShowInlineScanner] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [inlineScannedBarcode, setInlineScannedBarcode] = useState<string | null>(null);
   const [allowInlineScan, setAllowInlineScan] = useState(false);
-  const [activeModeFilter, setActiveModeFilter] = useState<'all' | 'packing' | 'unboxing'>('all');
-  const [activeBrandFilter, setActiveBrandFilter] = useState<'all' | 'Marigold Philippines' | 'Marigold Collab'>('all');
-  const [showModeDropdown, setShowModeDropdown] = useState(false);
-  const [showBrandDropdown, setShowBrandDropdown] = useState(false);
 
   useEffect(() => {
     if (showInlineScanner) {
@@ -91,150 +109,250 @@ export const MainScreen: React.FC<MainScreenProps> = ({
   }));
 
   const filteredRecords = records.filter(record => {
-    // 1. Search Query filter
+    // Search Query filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      const matchesSearch = (
+      return (
         record.code.toLowerCase().includes(query) ||
-        record.fileName.toLowerCase().includes(query) ||
-        (record.mode && record.mode.toLowerCase().includes(query)) ||
-        (record.brand && record.brand.toLowerCase().includes(query))
+        record.fileName.toLowerCase().includes(query)
       );
-      if (!matchesSearch) return false;
     }
-
-    // 2. Mode filter
-    if (activeModeFilter !== 'all' && record.mode !== activeModeFilter) {
-      return false;
-    }
-
-    // 3. Brand/Page filter
-    if (activeBrandFilter !== 'all' && record.brand !== activeBrandFilter) {
-      return false;
-    }
-
     return true;
   });
 
-  // Scan Setup Bottom Sheet choice states
-  const [showBottomSheet, setShowBottomSheet] = useState(false);
-  const [scanMode, setScanMode] = useState<'packing' | 'unboxing'>('packing');
-  const [scanBrand, setScanBrand] = useState<'Marigold Philippines' | 'Marigold Collab'>('Marigold Philippines');
 
-  const modeLevels: { value: 'packing' | 'unboxing'; label: string }[] = [
-    { value: 'packing', label: 'Packing' },
-    { value: 'unboxing', label: 'Unboxing' },
-  ];
-  const modeTabIndex = modeLevels.findIndex(l => l.value === scanMode);
-  const modeTabAnim = useRef(new Animated.Value(modeTabIndex)).current;
-  const [modeTabWidth, setModeTabWidth] = useState(0);
 
-  const handleModeChange = (val: 'packing' | 'unboxing') => {
-    setScanMode(val);
-    Animated.spring(modeTabAnim, {
-      toValue: modeLevels.findIndex(l => l.value === val),
-      useNativeDriver: true,
-      tension: 70,
-      friction: 12,
-    }).start();
-  };
+  const activeSessions = useRef<Map<string, any>>(new Map());
 
-  const brandLevels: { value: 'Marigold Philippines' | 'Marigold Collab'; label: string }[] = [
-    { value: 'Marigold Philippines', label: 'Marigold Philippines' },
-    { value: 'Marigold Collab', label: 'Marigold Collab' },
-  ];
-  const brandTabIndex = brandLevels.findIndex(l => l.value === scanBrand);
-  const brandTabAnim = useRef(new Animated.Value(brandTabIndex)).current;
-  const [brandTabWidth, setBrandTabWidth] = useState(0);
+  // Statistics callback to calculate progress percentage dynamically in background
+  useEffect(() => {
+    FFmpegKitConfig.enableStatisticsCallback((statistics) => {
+      const timeMs = statistics.getTime();
+      const sessionId = statistics.getSessionId();
 
-  const handleBrandChange = (val: 'Marigold Philippines' | 'Marigold Collab') => {
-    setScanBrand(val);
-    Animated.spring(brandTabAnim, {
-      toValue: brandLevels.findIndex(l => l.value === val),
-      useNativeDriver: true,
-      tension: 70,
-      friction: 12,
-    }).start();
-  };
-
-  // Dragging translation for sheet
-  const translateY = useSharedValue(0);
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        return Math.abs(gestureState.dy) > 5 && gestureState.dy > 0;
-      },
-      onPanResponderMove: (_, gestureState) => {
-        if (gestureState.dy > 0) {
-          translateY.value = gestureState.dy;
+      let matchingRecordId: string | null = null;
+      for (const [recId, session] of activeSessions.current.entries()) {
+        if (session && String(session.getSessionId()) === String(sessionId)) {
+          matchingRecordId = recId;
+          break;
         }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dy > 120 || gestureState.vy > 0.5) {
-          translateY.value = withTiming(500, { duration: 200 }, (finished) => {
-            if (finished) {
-              runOnJS(setShowBottomSheet)(false);
+      }
+
+      if (matchingRecordId) {
+        setRecords(prevRecords => {
+          const rec = prevRecords.find(r => r.id === matchingRecordId);
+          if (!rec) return prevRecords;
+
+          let totalMs = 10000;
+          if (rec.duration) {
+            const match = rec.duration.match(/^(\d+):(\d+)s$/);
+            if (match) {
+              const mins = parseInt(match[1], 10);
+              const secs = parseInt(match[2], 10);
+              totalMs = (mins * 60 + secs) * 1000;
+            } else {
+              const matchSec = rec.duration.match(/^(\d+)s$/);
+              if (matchSec) {
+                totalMs = parseInt(matchSec[1], 10) * 1000;
+              }
             }
+          }
+
+          const pct = Math.min(99, Math.max(0, Math.round((timeMs / totalMs) * 100)));
+          if (rec.processingProgress === pct) return prevRecords;
+
+          const updated = prevRecords.map(r => {
+            if (r.id === matchingRecordId) {
+              return { ...r, processingProgress: pct };
+            }
+            return r;
           });
-        } else {
-          translateY.value = withTiming(0, { duration: 180 });
-        }
-      },
-    })
-  ).current;
 
-  const animatedSheetStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
-  }));
-
-  const animatedBackdropStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(
-      translateY.value,
-      [0, 500],
-      [0.5, 0],
-      'clamp'
-    );
-    return {
-      backgroundColor: 'rgba(0, 0, 0, 1)',
-      opacity: opacity,
-    };
-  });
-
-  const openBottomSheet = () => {
-    setShowBottomSheet(true);
-    translateY.value = 500;
-    translateY.value = withTiming(0, { duration: 250 });
-  };
-
-  const closeBottomSheet = () => {
-    translateY.value = withTiming(500, { duration: 200 }, (finished) => {
-      if (finished) {
-        runOnJS(setShowBottomSheet)(false);
+          Storage.saveHistoryRecords(updated);
+          return updated;
+        });
       }
     });
-  };
 
-  const activePlayer = useVideoPlayer(activeVideoUri || '', (p) => {
-    p.loop = true;
-    p.play();
-  });
+    return () => {
+      FFmpegKitConfig.disableStatistics();
+    };
+  }, []);
 
   useEffect(() => {
     const loadData = async () => {
       const stored = await Storage.getHistoryRecords();
       if (stored && stored.length > 0) {
-        setRecords(stored);
+        // Map records that were left 'processing' back to 'paused' on app start
+        const cleaned = stored.map(r => {
+          if (r.processingState === 'processing') {
+            return { ...r, processingState: 'paused' };
+          }
+          return r;
+        });
+        setRecords(cleaned);
       }
-      const storedComp = await Storage.getCompressionQuality();
-      setCompressionQuality(storedComp);
+
     };
     loadData();
   }, []);
 
-  const handleSaveSession = async (barcode: string, videoUri: string, duration: string, thumbnailUri?: string) => {
+  const startFFmpegProcessing = async (record: BarcodeRecord) => {
+    try {
+      const startEpoch = record.startEpoch || Math.floor(Date.now() / 1000);
+      const inputPath = record.rawVideoUri!.replace('file://', '');
+      
+      const publicDirUri = await Storage.getPublicDirectoryUri();
+      const isPublicExportEnabled = !!(publicDirUri && Platform.OS === 'android');
+
+      let outputUri = FileSystem.documentDirectory + 'videos/' + record.fileName;
+      let outputPath = outputUri.replace('file://', '');
+
+      if (isPublicExportEnabled && publicDirUri) {
+        try {
+          // Pre-create the file in the SAF directory to get a content:// URI
+          const safFileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+            publicDirUri,
+            record.fileName,
+            'video/mp4'
+          );
+          // Convert the content URI into an FFmpeg SAF writable path parameter
+          outputPath = await FFmpegKitConfig.getSafParameterForWrite(safFileUri);
+          outputUri = safFileUri;
+          console.log('FFmpeg SAF Output URL configured:', outputPath);
+        } catch (safErr) {
+          console.error('Failed to pre-create SAF file, falling back to local storage:', safErr);
+          outputUri = FileSystem.documentDirectory + 'videos/' + record.fileName;
+          outputPath = outputUri.replace('file://', '');
+        }
+      }
+
+      const fontParam = Platform.OS === 'ios' ? 'font=Helvetica' : 'font=sans';
+      const videoCodec = Platform.OS === 'ios' ? 'h264_videotoolbox' : 'mpeg4';
+
+      const scaleFilter = 'scale=-2:720,'; // Scale to 720p height, keep aspect ratio
+      const targetBitrate = '2M';          // Medium: 720p target @ 2Mbps
+      const fontSize = 24;                 // Calibrated smaller size for 720p
+      const padding = 20;
+
+      const filterScriptUri = FileSystem.cacheDirectory + 'filter_script_' + record.id + '.txt';
+      const filterScriptPath = filterScriptUri.replace('file://', '');
+      const filterText = `fps=15,${scaleFilter}drawtext=text='%{pts\\:localtime\\:${startEpoch}\\:%B %d\\\\,\\\\ %Y %r}':x=${padding}:y=${padding}:fontsize=${fontSize}:fontcolor=white:box=1:boxcolor=black@0.4:${fontParam}`;
+
+      await FileSystem.writeAsStringAsync(filterScriptUri, filterText);
+
+      const ffmpegArgs = [
+        '-y',
+        ...(Platform.OS === 'ios' ? ['-hwaccel', 'videotoolbox'] : []),
+        '-threads', '0',
+        '-i', inputPath,
+        '-filter_script:v', filterScriptPath,
+        '-c:v', videoCodec,
+        ...(Platform.OS === 'ios' ? ['-realtime', '1'] : []),
+        '-b:v', targetBitrate,
+        '-c:a', 'copy',
+        outputPath
+      ];
+
+      const session = await FFmpegKit.executeWithArgumentsAsync(ffmpegArgs, async (finishedSession) => {
+        const returnCode = await finishedSession.getReturnCode();
+        activeSessions.current.delete(record.id);
+
+        if (returnCode.isValueSuccess()) {
+          // Calculate the correct file size
+          let sizeStr = '0 B';
+          try {
+            const fileInfo = await FileSystem.getInfoAsync(outputUri);
+            if (fileInfo.exists && fileInfo.size !== undefined) {
+              const sizeInBytes = fileInfo.size;
+              if (sizeInBytes < 1024 * 1024) {
+                sizeStr = `${(sizeInBytes / 1024).toFixed(1)} KB`;
+              } else {
+                sizeStr = `${(sizeInBytes / (1024 * 1024)).toFixed(1)} MB`;
+              }
+            }
+          } catch (_) {}
+
+          // Clean up the temporary raw video from disk
+          if (record.rawVideoUri) {
+            try {
+              await FileSystem.deleteAsync(record.rawVideoUri, { idempotent: true });
+              console.log('Cleaned up temporary raw video:', record.rawVideoUri);
+            } catch (_) {}
+          }
+
+          setRecords(prev => {
+            const updated = prev.map(r => {
+              if (r.id === record.id) {
+                return {
+                  ...r,
+                  videoUri: outputUri,
+                  rawVideoUri: undefined,
+                  size: sizeStr,
+                  processingState: 'completed' as const,
+                  processingProgress: 100,
+                };
+              }
+              return r;
+            });
+            Storage.saveHistoryRecords(updated);
+            return updated;
+          });
+        } else if (ReturnCode.isCancel(returnCode)) {
+          console.log(`FFmpeg Session cancelled for record: ${record.id}`);
+        } else {
+          const logs = await finishedSession.getLogs();
+          console.warn('FFmpeg background failed:', logs.map(l => l.getMessage()).join('\n'));
+          setRecords(prev => {
+            const updated = prev.map(r => {
+              if (r.id === record.id) {
+                return { ...r, processingState: 'failed' as const };
+              }
+              return r;
+            });
+            Storage.saveHistoryRecords(updated);
+            return updated;
+          });
+        }
+
+        try {
+          await FileSystem.deleteAsync(filterScriptUri, { idempotent: true });
+        } catch (_) {}
+      });
+
+      activeSessions.current.set(record.id, session);
+    } catch (err) {
+      console.error('Error in background FFmpeg init:', err);
+      setRecords(prev => {
+        const updated = prev.map(r => {
+          if (r.id === record.id) {
+            return { ...r, processingState: 'failed' as const };
+          }
+          return r;
+        });
+        Storage.saveHistoryRecords(updated);
+        return updated;
+      });
+    }
+  };
+
+
+
+  const handleSaveSession = async (barcode: string, videoUri: string, duration: string, thumbnailUri?: string, startEpoch?: number) => {
     const type = barcode.startsWith('http') ? 'QR_CODE' : barcode.length > 10 ? 'EAN-13' : 'CODE-128';
+
+    // 1. Determine unique barcode display code for duplicate prevention in list
+    let displayBarcode = barcode;
+    const sameBaseCount = records.filter(r => {
+      const baseOfRecord = r.code.replace(/\s\(\d+\)$/, '');
+      return baseOfRecord === barcode;
+    }).length;
+
+    if (sameBaseCount > 0) {
+      displayBarcode = `${barcode} (${sameBaseCount})`;
+    }
+
+    const newRecordId = Math.random().toString(36).substring(2, 9);
 
     const timestampStr = new Date().toLocaleString(undefined, {
       year: 'numeric',
@@ -244,69 +362,36 @@ export const MainScreen: React.FC<MainScreenProps> = ({
       minute: '2-digit',
       hour12: true,
     });
-    const prefix = scanMode === 'packing' ? 'pack' : 'unbox';
-    const brandSuffix = scanBrand === 'Marigold Philippines' ? 'MarigoldPH' : 'MarigoldClb';
-    const baseName = `${prefix}_${barcode}_${brandSuffix}`;
-    let fileNameStr = `${baseName}.mp4`;
+    const now = new Date();
+    const pad = (num: number) => String(num).padStart(2, '0');
+    const dateStr = `${pad(now.getDate())}-${pad(now.getMonth() + 1)}-${now.getFullYear()}`;
+    const timeStr = `${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+    
+    const baseName = `${dateStr}_${timeStr}_${displayBarcode}`;
+    const fileNameStr = `${baseName}.mp4`;
 
-    let finalVideoUri = videoUri;
-    try {
-      const isAlreadyCompressed = videoUri.includes('engraved_');
-      if (compressionQuality === 'high' || isAlreadyCompressed) {
-        // Skip compression entirely — preserve the already processed FFmpeg output or high quality
-        console.log('Skipping compression. Already processed or high quality:', isAlreadyCompressed);
-      } else {
-        console.log('Compressing video at:', videoUri);
-        const targetBitrate = compressionQuality === 'medium' ? 5000000 : 2000000;
-        const targetMaxSize = compressionQuality === 'medium' ? 1280 : 854;
- 
-        finalVideoUri = await VideoCompressor.compress(
-          videoUri,
-          {
-            compressionMethod: 'manual',
-            bitrate: targetBitrate,
-            maxSize: targetMaxSize,
-          }
-        );
-        console.log('Compression complete with target size:', targetMaxSize, 'bitrate:', targetBitrate, 'Output URI:', finalVideoUri);
-      }
-    } catch (compressErr) {
-      console.error('Failed to compress video, using original:', compressErr);
-    }
-
-    // Copy to permanent Documents/videos/ directory so it persists in its own clean folder
-    if (FileSystem.documentDirectory) {
+    // Copy raw video temporarily to cache directory instead of documentDirectory
+    let tempRawUri = videoUri;
+    if (FileSystem.cacheDirectory) {
       try {
-        const targetDir = `${FileSystem.documentDirectory}videos/`;
-        // Ensure the directory exists
+        const targetDir = `${FileSystem.cacheDirectory}raw_videos/`;
         const dirInfo = await FileSystem.getInfoAsync(targetDir);
         if (!dirInfo.exists) {
           await FileSystem.makeDirectoryAsync(targetDir, { intermediates: true });
         }
 
-        // Find a unique filename — never overwrite existing files
-        let uniqueName = `${baseName}.mp4`;
-        let candidate = `${targetDir}${uniqueName}`;
-        let counter = 1;
-        while ((await FileSystem.getInfoAsync(candidate)).exists) {
-          uniqueName = `${baseName} (${counter}).mp4`;
-          candidate = `${targetDir}${uniqueName}`;
-          counter++;
-        }
-
+        const candidate = `${targetDir}raw_${newRecordId}.mp4`;
         await FileSystem.copyAsync({
-          from: finalVideoUri,
+          from: videoUri,
           to: candidate,
         });
-        console.log('Saved permanently to:', candidate);
-        finalVideoUri = candidate;
-        fileNameStr = uniqueName;
+        console.log('Saved raw video temporarily to cache:', candidate);
+        tempRawUri = candidate;
       } catch (copyErr) {
-        console.error('Failed to copy to permanent storage, using cache:', copyErr);
+        console.error('Failed to copy to temporary cache, using original:', copyErr);
       }
     }
 
-    // Copy thumbnail to permanent Documents/thumbnails/ directory
     let finalThumbnailUri = thumbnailUri;
     if (thumbnailUri && FileSystem.documentDirectory) {
       try {
@@ -332,12 +417,7 @@ export const MainScreen: React.FC<MainScreenProps> = ({
 
     let sizeStr = '0 B';
     try {
-      const fileInfo = await FileSystem.getInfoAsync(finalVideoUri);
-      console.log('--- Video FileInfo Debug ---');
-      console.log('URI:', finalVideoUri);
-      console.log('FileInfo:', fileInfo);
-      console.log('----------------------------');
-
+      const fileInfo = await FileSystem.getInfoAsync(tempRawUri);
       if (fileInfo.exists && fileInfo.size !== undefined) {
         const sizeInBytes = fileInfo.size;
         if (sizeInBytes < 1024 * 1024) {
@@ -351,22 +431,27 @@ export const MainScreen: React.FC<MainScreenProps> = ({
     }
 
     const newRecord: BarcodeRecord = {
-      id: (records.length + 1).toString(),
-      code: barcode,
+      id: newRecordId,
+      code: displayBarcode,
       type: type,
       timestamp: timestampStr,
       duration: duration,
       fileName: fileNameStr,
-      videoUri: finalVideoUri,
+      videoUri: tempRawUri,
+      rawVideoUri: tempRawUri,
       size: sizeStr,
-      mode: scanMode,
-      brand: scanBrand,
       thumbnailUri: finalThumbnailUri,
+      processingState: 'processing' as const,
+      processingProgress: 0,
+      startEpoch: startEpoch || Math.floor(Date.now() / 1000),
     };
 
     const updatedRecords = [newRecord, ...records];
     setRecords(updatedRecords);
     await Storage.saveHistoryRecords(updatedRecords);
+
+    // Trigger FFmpeg in background
+    startFFmpegProcessing(newRecord);
 
     setShowCamera(false);
     setActiveTab('home');
@@ -400,6 +485,17 @@ export const MainScreen: React.FC<MainScreenProps> = ({
           console.error('Error deleting video file:', r.videoUri, err);
         }
       }
+      if (r.rawVideoUri) {
+        try {
+          const info = await FileSystem.getInfoAsync(r.rawVideoUri);
+          if (info.exists) {
+            await FileSystem.deleteAsync(r.rawVideoUri, { idempotent: true });
+            console.log('Deleted raw video file:', r.rawVideoUri);
+          }
+        } catch (err) {
+          console.error('Error deleting raw video file:', r.rawVideoUri, err);
+        }
+      }
       if (r.thumbnailUri) {
         try {
           const info = await FileSystem.getInfoAsync(r.thumbnailUri);
@@ -411,6 +507,55 @@ export const MainScreen: React.FC<MainScreenProps> = ({
           console.error('Error deleting thumbnail file:', r.thumbnailUri, err);
         }
       }
+    }
+  };
+
+  const clearAllPhysicalFiles = async () => {
+    // 1. Clear internal sandbox videos
+    try {
+      const videosDir = `${FileSystem.documentDirectory}videos/`;
+      const videosDirInfo = await FileSystem.getInfoAsync(videosDir);
+      if (videosDirInfo.exists) {
+        await FileSystem.deleteAsync(videosDir, { idempotent: true });
+        await FileSystem.makeDirectoryAsync(videosDir, { intermediates: true });
+        console.log('Cleared local videos directory');
+      }
+    } catch (err) {
+      console.error('Error clearing local videos directory:', err);
+    }
+
+    // 2. Clear internal sandbox thumbnails
+    try {
+      const thumbsDir = `${FileSystem.documentDirectory}thumbnails/`;
+      const thumbsDirInfo = await FileSystem.getInfoAsync(thumbsDir);
+      if (thumbsDirInfo.exists) {
+        await FileSystem.deleteAsync(thumbsDir, { idempotent: true });
+        await FileSystem.makeDirectoryAsync(thumbsDir, { intermediates: true });
+        console.log('Cleared local thumbnails directory');
+      }
+    } catch (err) {
+      console.error('Error clearing local thumbnails directory:', err);
+    }
+
+    // 3. Clear public SAF folder if configured on Android
+    try {
+      const publicDirUri = await Storage.getPublicDirectoryUri();
+      if (publicDirUri && Platform.OS === 'android') {
+        const files = await FileSystem.StorageAccessFramework.readDirectoryAsync(publicDirUri);
+        for (const fileUri of files) {
+          const decoded = decodeURIComponent(fileUri);
+          if (decoded.endsWith('.mp4') || decoded.endsWith('.jpg') || decoded.includes('_')) {
+            try {
+              await FileSystem.deleteAsync(fileUri, { idempotent: true });
+              console.log('Deleted public file via SAF:', fileUri);
+            } catch (delErr) {
+              console.error('Failed to delete public file:', fileUri, delErr);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error clearing public SAF folder:', err);
     }
   };
 
@@ -447,10 +592,7 @@ export const MainScreen: React.FC<MainScreenProps> = ({
 
 
 
-  const handleCompressionQualityChange = async (newQuality: 'low' | 'medium' | 'high') => {
-    setCompressionQuality(newQuality);
-    await Storage.saveCompressionQuality(newQuality);
-  };
+
 
   if (showCamera) {
     return (
@@ -460,7 +602,6 @@ export const MainScreen: React.FC<MainScreenProps> = ({
           setInlineScannedBarcode(null);
         }}
         onSaveSession={handleSaveSession}
-        compressionQuality={compressionQuality}
         initialBarcode={inlineScannedBarcode || undefined}
       />
     );
@@ -520,80 +661,7 @@ export const MainScreen: React.FC<MainScreenProps> = ({
             </RipplePressable>
           </View>
 
-          {/* Filter Dropdowns Row */}
-          <View style={styles.filterDropdownsRow}>
-            {/* Mode Dropdown */}
-            <View style={styles.dropdownWrapper}>
-              <Pressable
-                onPress={() => { setShowModeDropdown(prev => !prev); setShowBrandDropdown(false); }}
-                style={[styles.dropdownButton, isDark ? styles.dropdownButtonDark : styles.dropdownButtonLight]}
-              >
-                <Text style={[styles.dropdownButtonText, isDark ? styles.dropdownTextDark : styles.dropdownTextLight]}>
-                  {activeModeFilter === 'all' ? 'All Modes' : activeModeFilter === 'packing' ? 'Packing' : 'Unboxing'}
-                </Text>
-                <CaretDown size={16} color={isDark ? '#94A3B8' : '#64748B'} />
-              </Pressable>
-              
-              {showModeDropdown && (
-                <View style={[styles.dropdownMenu, isDark ? styles.dropdownMenuDark : styles.dropdownMenuLight]}>
-                  <Pressable
-                    onPress={() => { setActiveModeFilter('all'); setShowModeDropdown(false); }}
-                    style={styles.dropdownItem}
-                  >
-                    <Text style={[styles.dropdownItemText, isDark ? styles.dropdownTextDark : styles.dropdownTextLight]}>All Modes</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => { setActiveModeFilter('packing'); setShowModeDropdown(false); }}
-                    style={styles.dropdownItem}
-                  >
-                    <Text style={[styles.dropdownItemText, isDark ? styles.dropdownTextDark : styles.dropdownTextLight]}>Packing</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => { setActiveModeFilter('unboxing'); setShowModeDropdown(false); }}
-                    style={styles.dropdownItem}
-                  >
-                    <Text style={[styles.dropdownItemText, isDark ? styles.dropdownTextDark : styles.dropdownTextLight]}>Unboxing</Text>
-                  </Pressable>
-                </View>
-              )}
-            </View>
 
-            {/* Brand Dropdown */}
-            <View style={styles.dropdownWrapper}>
-              <Pressable
-                onPress={() => { setShowBrandDropdown(prev => !prev); setShowModeDropdown(false); }}
-                style={[styles.dropdownButton, isDark ? styles.dropdownButtonDark : styles.dropdownButtonLight]}
-              >
-                <Text style={[styles.dropdownButtonText, isDark ? styles.dropdownTextDark : styles.dropdownTextLight]} numberOfLines={1}>
-                  {activeBrandFilter === 'all' ? 'All Pages' : activeBrandFilter === 'Marigold Philippines' ? 'Marigold PH' : 'Marigold Collab'}
-                </Text>
-                <CaretDown size={16} color={isDark ? '#94A3B8' : '#64748B'} />
-              </Pressable>
-
-              {showBrandDropdown && (
-                <View style={[styles.dropdownMenu, isDark ? styles.dropdownMenuDark : styles.dropdownMenuLight]}>
-                  <Pressable
-                    onPress={() => { setActiveBrandFilter('all'); setShowBrandDropdown(false); }}
-                    style={styles.dropdownItem}
-                  >
-                    <Text style={[styles.dropdownItemText, isDark ? styles.dropdownTextDark : styles.dropdownTextLight]}>All Pages</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => { setActiveBrandFilter('Marigold Philippines'); setShowBrandDropdown(false); }}
-                    style={styles.dropdownItem}
-                  >
-                    <Text style={[styles.dropdownItemText, isDark ? styles.dropdownTextDark : styles.dropdownTextLight]}>Marigold PH</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => { setActiveBrandFilter('Marigold Collab'); setShowBrandDropdown(false); }}
-                    style={styles.dropdownItem}
-                  >
-                    <Text style={[styles.dropdownItemText, isDark ? styles.dropdownTextDark : styles.dropdownTextLight]}>Marigold Collab</Text>
-                  </Pressable>
-                </View>
-              )}
-            </View>
-          </View>
 
           {cameraPermission?.granted && (
             <Reanimated.View
@@ -627,8 +695,6 @@ export const MainScreen: React.FC<MainScreenProps> = ({
       <TouchableWithoutFeedback
         onPress={() => {
           Keyboard.dismiss();
-          setShowModeDropdown(false);
-          setShowBrandDropdown(false);
         }}
         accessible={false}
       >
@@ -652,14 +718,12 @@ export const MainScreen: React.FC<MainScreenProps> = ({
             <SettingsScreen
               onResetOnboarding={onResetOnboarding}
               onClearHistory={async () => {
-                await deleteFilesForRecords(records);
+                await clearAllPhysicalFiles();
                 await Storage.clearHistoryRecords();
                 setRecords([]);
               }}
               isDarkMode={isDarkMode}
               onToggleDarkMode={onToggleDarkMode}
-              compressionQuality={compressionQuality}
-              onChangeCompressionQuality={handleCompressionQualityChange}
             />
           )}
         </View>
@@ -695,162 +759,12 @@ export const MainScreen: React.FC<MainScreenProps> = ({
         <BottomNavigator
           activeTab={activeTab}
           onTabChange={setActiveTab}
-          onCameraPress={openBottomSheet}
+          onCameraPress={() => setShowCamera(true)}
           isDarkMode={isDarkMode}
         />
       )}
 
-      {/* Setup Scan Bottom Sheet */}
-      {showBottomSheet && (
-        <Reanimated.View
-          entering={FadeIn.duration(150)}
-          exiting={FadeOut.duration(150)}
-          style={[StyleSheet.absoluteFillObject, { zIndex: 9998, elevation: 9998 }]}
-        >
-          {/* Backdrop Dimming */}
-          <Pressable
-            onPress={closeBottomSheet}
-            style={StyleSheet.absoluteFillObject}
-          >
-            <Reanimated.View
-              style={[StyleSheet.absoluteFillObject, animatedBackdropStyle]}
-            />
-          </Pressable>
 
-          {/* Bottom Sheet Container */}
-          <Reanimated.View
-            entering={SlideInDown.duration(250)}
-            exiting={SlideOutDown.duration(150)}
-            style={[
-              styles.bottomSheetContainer,
-              isDark ? styles.bottomSheetDark : styles.bottomSheetLight,
-              { paddingBottom: insets.bottom + 24 },
-              animatedSheetStyle
-            ]}
-          >
-            {/* Header Drag area */}
-            <View {...panResponder.panHandlers} style={styles.dragArea}>
-              <View style={[styles.dragHandle, isDark ? { backgroundColor: '#475569' } : { backgroundColor: '#CBD5E1' }]} />
-            </View>
-
-            <Text style={[styles.bottomSheetTitle, isDark ? { color: '#FFFFFF' } : { color: '#0F172A' }]}>
-              Scan Settings
-            </Text>
-
-            {/* Selector 1: Scan Mode */}
-            <View style={styles.sheetSelectorGroup}>
-              <Text style={[styles.sheetSelectorLabel, isDark ? { color: '#94A3B8' } : { color: '#64748B' }]}>
-                Scan Activity
-              </Text>
-              <View
-                style={[styles.tabTrack, isDark ? styles.tabTrackDark : styles.tabTrackLight]}
-                onLayout={(e: LayoutChangeEvent) => setModeTabWidth(e.nativeEvent.layout.width / 2)}
-              >
-                {modeTabWidth > 0 && (
-                  <Animated.View
-                    style={[
-                      styles.tabPill,
-                      isDark ? styles.tabPillDark : styles.tabPillLight,
-                      {
-                        width: modeTabWidth - 6,
-                        transform: [{
-                          translateX: modeTabAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [3, modeTabWidth + 3],
-                          }),
-                        }],
-                      },
-                    ]}
-                  />
-                )}
-                {modeLevels.map((level) => {
-                  const isActive = scanMode === level.value;
-                  return (
-                    <TouchableWithoutFeedback
-                      key={level.value}
-                      onPress={() => handleModeChange(level.value)}
-                    >
-                      <View style={styles.tabItem}>
-                        <Text style={[
-                          styles.tabLabel,
-                          isDark
-                            ? { color: isActive ? '#FFFFFF' : '#64748B' }
-                            : { color: isActive ? '#0F172A' : '#94A3B8' },
-                        ]}>
-                          {level.label}
-                        </Text>
-                      </View>
-                    </TouchableWithoutFeedback>
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* Selector 2: Brand / Company */}
-            <View style={styles.sheetSelectorGroup}>
-              <Text style={[styles.sheetSelectorLabel, isDark ? { color: '#94A3B8' } : { color: '#64748B' }]}>
-                Page
-              </Text>
-              <View
-                style={[styles.tabTrack, isDark ? styles.tabTrackDark : styles.tabTrackLight]}
-                onLayout={(e: LayoutChangeEvent) => setBrandTabWidth(e.nativeEvent.layout.width / 2)}
-              >
-                {brandTabWidth > 0 && (
-                  <Animated.View
-                    style={[
-                      styles.tabPill,
-                      isDark ? styles.tabPillDark : styles.tabPillLight,
-                      {
-                        width: brandTabWidth - 6,
-                        transform: [{
-                          translateX: brandTabAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [3, brandTabWidth + 3],
-                          }),
-                        }],
-                      },
-                    ]}
-                  />
-                )}
-                {brandLevels.map((level) => {
-                  const isActive = scanBrand === level.value;
-                  return (
-                    <TouchableWithoutFeedback
-                      key={level.value}
-                      onPress={() => handleBrandChange(level.value)}
-                    >
-                      <View style={styles.tabItem}>
-                        <Text style={[
-                          styles.tabLabel,
-                          isDark
-                            ? { color: isActive ? '#FFFFFF' : '#64748B' }
-                            : { color: isActive ? '#0F172A' : '#94A3B8' },
-                        ]}>
-                          {level.label}
-                        </Text>
-                      </View>
-                    </TouchableWithoutFeedback>
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* Start Scanning Button */}
-            <MD3Button
-              title="Start Scanning"
-              onPress={() => {
-                setShowBottomSheet(false);
-                translateY.value = 500;
-                setShowCamera(true);
-              }}
-              variant="filled"
-              size="large"
-              style={styles.startScanBtn}
-              isDarkMode={isDark}
-            />
-          </Reanimated.View>
-        </Reanimated.View>
-      )}
 
       {/* Full screen Video Player Overlay */}
       {activeVideoUri && (
@@ -859,109 +773,72 @@ export const MainScreen: React.FC<MainScreenProps> = ({
           exiting={FadeOut.duration(150)}
           style={[StyleSheet.absoluteFillObject, { zIndex: 9999, elevation: 9999 }]}
         >
-          <View
+          {/* Backdrop Dismiss Button (Strictly underneath the card) */}
+          <Pressable
+            onPress={() => { setActiveVideoUri(null); setActiveRecord(null); }}
             style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0, 0, 0, 0.6)' }]}
           />
 
-          <Pressable
-            onPress={() => { setActiveVideoUri(null); setActiveRecord(null); }}
-            style={StyleSheet.absoluteFillObject}
+          {/* Centered Video Card Container (Sits on top, does not intercept close taps) */}
+          <View 
+            pointerEvents="box-none"
+            style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24, paddingBottom: '10%' }}
           >
-            {/* Centered Video Card */}
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24, paddingBottom: '10%' }}>
-
-              {/* Name + Date above the card */}
-              {activeRecord && (
-                <Reanimated.View
-                  entering={FadeIn.duration(200)}
-                  exiting={FadeOut.duration(150)}
-                  style={{ marginBottom: 14, alignItems: 'center' }}
-                >
-                  <Text
-                    numberOfLines={1}
-                    style={{
-                      color: '#FFFFFF',
-                      fontSize: 16,
-                      fontWeight: '700',
-                      fontFamily: 'sans-serif-medium',
-                      marginBottom: 4,
-                    }}
-                  >
-                    {activeRecord.fileName}
-                  </Text>
-
-                  {/* Badges row */}
-                  {(activeRecord.mode || activeRecord.brand) && (
-                    <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8 }}>
-                      {activeRecord.mode && (
-                        <View style={{
-                          backgroundColor: activeRecord.mode === 'packing' ? '#F59E0B' : '#3B82F6',
-                          paddingHorizontal: 8,
-                          paddingVertical: 3,
-                          borderRadius: 6,
-                        }}>
-                          <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: 'bold' }}>
-                            {activeRecord.mode === 'packing' ? 'Packing' : 'Unboxing'}
-                          </Text>
-                        </View>
-                      )}
-                      {activeRecord.brand && (
-                        <View style={{
-                          backgroundColor: activeRecord.brand === 'Marigold Philippines' ? '#FFFFFF' : '#EF4444',
-                          borderWidth: activeRecord.brand === 'Marigold Philippines' ? 1 : 0,
-                          borderColor: '#000000',
-                          paddingHorizontal: 8,
-                          paddingVertical: 3,
-                          borderRadius: 6,
-                        }}>
-                          <Text style={{ color: activeRecord.brand === 'Marigold Philippines' ? '#000000' : '#FFFFFF', fontSize: 11, fontWeight: 'bold' }}>
-                            {activeRecord.brand}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  )}
-
-                  <Text
-                    style={{
-                      color: 'rgba(255,255,255,0.55)',
-                      fontSize: 13,
-                      fontFamily: 'sans-serif',
-                    }}
-                  >
-                    {activeRecord.timestamp}
-                  </Text>
-                </Reanimated.View>
-              )}
-
+            {/* Name + Date above the card */}
+            {activeRecord && (
               <Reanimated.View
-                entering={ZoomIn.duration(100).springify()}
-                exiting={ZoomOut.duration(80)}
-                style={{
-                  borderRadius: 16,
-                  overflow: 'hidden',
-                  elevation: 8,
-                  shadowColor: '#000000',
-                  shadowOpacity: 0.3,
-                  shadowRadius: 16,
-                  shadowOffset: { width: 0, height: 6 },
-                  backgroundColor: 'transparent',
-                }}
+                entering={FadeIn.duration(200)}
+                exiting={FadeOut.duration(150)}
+                style={{ marginBottom: 14, alignItems: 'center' }}
               >
-                <Pressable
-                  onPress={() => { }} // Empty callback blocks click bubbling to backdrop
-                  style={{ position: 'relative' }}
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    color: '#FFFFFF',
+                    fontSize: 16,
+                    fontWeight: '700',
+                    fontFamily: 'sans-serif-medium',
+                    marginBottom: 4,
+                  }}
                 >
-                  <VideoView
-                    style={styles.videoPlayerModalPlayer}
-                    player={activePlayer}
-                    allowsPictureInPicture={false}
-                    nativeControls={true}
-                  />
-                </Pressable>
+                  {activeRecord.fileName}
+                </Text>
+
+                <Text
+                  style={{
+                    color: 'rgba(255,255,255,0.55)',
+                    fontSize: 13,
+                    fontFamily: 'sans-serif',
+                  }}
+                >
+                  {activeRecord.timestamp}
+                </Text>
               </Reanimated.View>
-            </View>
-          </Pressable>
+            )}
+
+            <Reanimated.View
+              entering={ZoomIn.duration(100).springify()}
+              exiting={ZoomOut.duration(80)}
+              style={{
+                borderRadius: 16,
+                overflow: 'hidden',
+                elevation: 8,
+                shadowColor: '#000000',
+                shadowOpacity: 0.3,
+                shadowRadius: 16,
+                shadowOffset: { width: 0, height: 6 },
+                backgroundColor: '#000000',
+              }}
+            >
+              <View style={{ position: 'relative' }}>
+                {activeVideoUri ? (
+                  <HistoryPlayer videoUri={activeVideoUri} />
+                ) : (
+                  <ActivityIndicator size="large" color="#FFFFFF" style={{ padding: 40 }} />
+                )}
+              </View>
+            </Reanimated.View>
+          </View>
         </Reanimated.View>
       )}
     </View>
@@ -1031,78 +908,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  filterDropdownsRow: {
-    paddingTop: 12,
-    paddingBottom: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    zIndex: 10,
-  },
-  dropdownWrapper: {
-    flex: 1,
-    position: 'relative',
-  },
-  dropdownButton: {
-    height: 48,
-    borderRadius: 24,
-    borderWidth: 1,
-    paddingHorizontal: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  dropdownButtonLight: {
-    backgroundColor: '#F8FAFC',
-    borderColor: '#E2E8F0',
-  },
-  dropdownButtonDark: {
-    backgroundColor: '#1E293B',
-    borderColor: '#334155',
-  },
-  dropdownButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    fontFamily: 'sans-serif-medium',
-  },
-  dropdownTextLight: {
-    color: '#0F172A',
-  },
-  dropdownTextDark: {
-    color: '#FFFFFF',
-  },
-  dropdownMenu: {
-    position: 'absolute',
-    top: 52,
-    left: 0,
-    right: 0,
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingVertical: 8,
-    elevation: 5,
-    shadowColor: '#000000',
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    zIndex: 999,
-  },
-  dropdownMenuLight: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E2E8F0',
-  },
-  dropdownMenuDark: {
-    backgroundColor: '#1E293B',
-    borderColor: '#334155',
-  },
-  dropdownItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-  },
-  dropdownItemText: {
-    fontSize: 16,
-    fontWeight: '500',
-    fontFamily: 'sans-serif',
-  },
+
   inlineScannerContainer: {
     borderRadius: 16,
     overflow: 'hidden',
@@ -1298,103 +1104,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  bottomSheetContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 24,
-    paddingTop: 16,
-    elevation: 10,
-    shadowColor: '#000000',
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: -4 },
-  },
-  bottomSheetLight: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  bottomSheetDark: {
-    backgroundColor: '#1E293B',
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  dragArea: {
-    width: '100%',
-    paddingVertical: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dragHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-  },
-  bottomSheetTitle: {
-    fontFamily: 'sans-serif-medium',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  sheetSelectorGroup: {
-    marginBottom: 20,
-    gap: 8,
-  },
-  sheetSelectorLabel: {
-    fontFamily: 'sans-serif-medium',
-    fontSize: 14,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  tabTrack: {
-    flexDirection: 'row',
-    borderRadius: 10,
-    padding: 3,
-    position: 'relative',
-  },
-  tabTrackLight: {
-    backgroundColor: '#E2E8F0',
-  },
-  tabTrackDark: {
-    backgroundColor: '#0F172A',
-  },
-  tabPill: {
-    position: 'absolute',
-    top: 3,
-    bottom: 3,
-    borderRadius: 8,
-  },
-  tabPillLight: {
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  tabPillDark: {
-    backgroundColor: '#1E293B',
-  },
-  tabItem: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderRadius: 8,
-    zIndex: 1,
-  },
-  tabLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    fontFamily: 'sans-serif-medium',
-  },
-  startScanBtn: {
-    marginTop: 12,
-    marginBottom: 8,
-  },
+
 });

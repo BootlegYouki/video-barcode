@@ -1,7 +1,8 @@
-import React from 'react';
-import { View, Text, FlatList, StyleSheet, Image } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, FlatList, StyleSheet, Image, ActivityIndicator } from 'react-native';
 import { RipplePressable } from '../components/RipplePressable';
-import { Play, CheckCircle, Barcode, QrCode } from 'phosphor-react-native';
+import { Play, CheckCircle, Barcode, QrCode, Pause, XCircle } from 'phosphor-react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, withSequence } from 'react-native-reanimated';
 
 interface BarcodeRecord {
   id: string;
@@ -11,11 +12,145 @@ interface BarcodeRecord {
   duration: string;
   fileName: string;
   videoUri?: string;
+  rawVideoUri?: string;
   size?: string;
-  mode?: 'packing' | 'unboxing';
-  brand?: 'Marigold Philippines' | 'Marigold Collab';
   thumbnailUri?: string;
+  processingState?: 'idle' | 'processing' | 'paused' | 'completed' | 'failed';
+  processingProgress?: number;
+  startEpoch?: number;
 }
+
+interface BarcodeCardItemProps {
+  item: BarcodeRecord;
+  isSelected: boolean;
+  isSelectMode: boolean;
+  onToggleSelect: (id: string) => void;
+  onEnterSelectMode: (id: string) => void;
+  onPlayVideo: (uri: string) => void;
+  isDark: boolean;
+  themeCard: any;
+  themeText: any;
+  themeSubText: any;
+  themeUncheckedCircleBorderColor: string;
+  pulseAnim: any;
+}
+
+const BarcodeCardItem: React.FC<BarcodeCardItemProps> = ({
+  item,
+  isSelected,
+  isSelectMode,
+  onToggleSelect,
+  onEnterSelectMode,
+  onPlayVideo,
+  isDark,
+  themeCard,
+  themeText,
+  themeSubText,
+  themeUncheckedCircleBorderColor,
+  pulseAnim,
+}) => {
+  const animatedPulseStyle = useAnimatedStyle(() => {
+    if (item.processingState === 'processing') {
+      return { opacity: pulseAnim.value };
+    }
+    return { opacity: 1 };
+  });
+
+  return (
+    <View style={[styles.card, themeCard, isSelected && (isDark ? { borderColor: '#10B981', backgroundColor: '#0B2D20' } : styles.cardSelected)]}>
+      <RipplePressable 
+        onPress={() => {
+          if (isSelectMode) {
+            onToggleSelect(item.id);
+          } else if (item.videoUri) {
+            onPlayVideo(item.videoUri);
+          }
+        }} 
+        onLongPress={() => {
+          if (!isSelectMode) {
+            onEnterSelectMode(item.id);
+          }
+        }}
+        style={styles.cardPressable}
+        delayLongPress={400}
+      >
+        {isSelectMode && (
+          <View style={styles.checkboxContainer}>
+            {isSelected ? (
+              <CheckCircle size={24} color={isDark ? '#10B981' : '#000000'} weight="fill" />
+            ) : (
+              <View style={[styles.uncheckedCircle, { borderColor: themeUncheckedCircleBorderColor }]} />
+            )}
+          </View>
+        )}
+
+        {/* Icon/Image Thumbnail with Loading Overlay */}
+        <View style={[styles.thumbnailContainer, isDark ? styles.thumbnailContainerDark : styles.thumbnailContainerLight]}>
+          {item.thumbnailUri ? (
+            <View style={{ width: '100%', height: '100%', position: 'relative' }}>
+              <Image source={{ uri: item.thumbnailUri }} style={styles.thumbnailImage} resizeMode="cover" />
+              {item.processingState === 'processing' && (
+                <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', alignItems: 'center' }]}>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                </View>
+              )}
+            </View>
+          ) : item.type === 'QR_CODE' ? (
+            <QrCode size={44} color={isDark ? '#FFFFFF' : '#0F172A'} weight="thin" />
+          ) : (
+            <Barcode size={44} color={isDark ? '#FFFFFF' : '#0F172A'} weight="thin" />
+          )}
+        </View>
+
+        <View style={styles.cardContent}>
+          <Animated.View style={animatedPulseStyle}>
+            <Text style={[styles.timestampText, themeSubText]}>{item.timestamp}</Text>
+            <Text style={[styles.codeText, themeText]}>{item.code}</Text>
+          </Animated.View>
+
+          {/* If background processing, render progress bar */}
+          {(item.processingState === 'processing' || item.processingState === 'paused') ? (
+            <View style={styles.progressSection}>
+              <View style={styles.progressRow}>
+                <Text style={[styles.progressLabel, themeSubText]}>
+                  {item.processingState === 'processing' ? 'Adding timestamp...' : 'Paused'} {item.processingProgress || 0}%
+                </Text>
+              </View>
+              
+              {/* Progress Track */}
+              <View style={[styles.progressTrack, isDark ? styles.progressTrackDark : styles.progressTrackLight]}>
+                <View 
+                  style={[
+                    styles.progressIndicator, 
+                    { 
+                      width: `${item.processingProgress || 0}%`,
+                      backgroundColor: item.processingState === 'processing' ? '#10B981' : '#64748B'
+                    }
+                  ]} 
+                />
+              </View>
+            </View>
+          ) : (
+            <Text style={[styles.metaText, themeSubText]}>
+              {item.size ? `${item.size} • ` : ''}
+              {(() => {
+                if (!item.duration) return '';
+                const match = item.duration.match(/^0:(\d+)s$/);
+                if (match) {
+                  const totalSecs = parseInt(match[1], 10);
+                  const mins = Math.floor(totalSecs / 60);
+                  const secs = totalSecs % 60;
+                  return `${mins}:${secs.toString().padStart(2, '0')}s`;
+                }
+                return item.duration;
+              })()}
+            </Text>
+          )}
+        </View>
+      </RipplePressable>
+    </View>
+  );
+};
 
 interface HomeScreenProps {
   records: BarcodeRecord[];
@@ -47,88 +182,36 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const themePlayBtnBg = isDark ? { backgroundColor: '#334155', borderColor: '#475569' } : { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' };
   const themeUncheckedCircleBorderColor = isDark ? '#475569' : '#CBD5E1';
 
+  // Pulsing animation for processing/loading cards
+  const pulseAnim = useSharedValue(0.4);
+
+  useEffect(() => {
+    pulseAnim.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 900 }),
+        withTiming(0.4, { duration: 900 })
+      ),
+      -1,
+      true
+    );
+  }, []);
+
   const renderItem = ({ item }: { item: BarcodeRecord }) => {
-    const selected = isSelected(item.id);
-
     return (
-      <View style={[styles.card, themeCard, selected && (isDark ? { borderColor: '#10B981', backgroundColor: '#0B2D20' } : styles.cardSelected)]}>
-        <RipplePressable 
-          onPress={() => {
-            if (isSelectMode) {
-              onToggleSelect(item.id);
-            } else if (item.videoUri) {
-              onPlayVideo(item.videoUri);
-            }
-          }} 
-          onLongPress={() => {
-            if (!isSelectMode) {
-              onEnterSelectMode(item.id);
-            }
-          }}
-          style={styles.cardPressable}
-          delayLongPress={400}
-        >
-          {isSelectMode && (
-            <View style={styles.checkboxContainer}>
-              {selected ? (
-                <CheckCircle size={24} color={isDark ? '#10B981' : '#000000'} weight="fill" />
-              ) : (
-                <View style={[styles.uncheckedCircle, { borderColor: themeUncheckedCircleBorderColor }]} />
-              )}
-            </View>
-          )}
-
-          {/* Icon Thumbnail */}
-          <View style={[styles.thumbnailContainer, isDark ? styles.thumbnailContainerDark : styles.thumbnailContainerLight]}>
-            {item.thumbnailUri ? (
-              <Image source={{ uri: item.thumbnailUri }} style={styles.thumbnailImage} resizeMode="cover" />
-            ) : item.type === 'QR_CODE' ? (
-              <QrCode size={44} color={isDark ? '#FFFFFF' : '#0F172A'} weight="thin" />
-            ) : (
-              <Barcode size={44} color={isDark ? '#FFFFFF' : '#0F172A'} weight="thin" />
-            )}
-          </View>
-
-          <View style={styles.cardContent}>
-            <Text style={[styles.timestampText, themeSubText]}>{item.timestamp}</Text>
-            <Text style={[styles.codeText, themeText]}>{item.code}</Text>
-
-            {(item.mode || item.brand) && (
-              <View style={styles.tagRow}>
-                {item.mode && (
-                  <View style={[styles.tag, item.mode === 'packing' ? styles.tagPacking : styles.tagUnboxing]}>
-                    <Text style={[styles.tagText, { color: '#FFFFFF' }]}>
-                      {item.mode === 'packing' ? 'Packing' : 'Unboxing'}
-                    </Text>
-                  </View>
-                )}
-                {item.brand && (
-                  <View style={[styles.tag, item.brand === 'Marigold Philippines' ? styles.tagBrandPH : styles.tagBrandCollab]}>
-                    <Text style={[styles.tagText, { color: item.brand === 'Marigold Philippines' ? '#000000' : '#FFFFFF' }]}>
-                      {item.brand}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            )}
-
-            <Text style={[styles.metaText, themeSubText]}>
-              {item.size ? `${item.size} • ` : ''}
-              {(() => {
-                if (!item.duration) return '';
-                const match = item.duration.match(/^0:(\d+)s$/);
-                if (match) {
-                  const totalSecs = parseInt(match[1], 10);
-                  const mins = Math.floor(totalSecs / 60);
-                  const secs = totalSecs % 60;
-                  return `${mins}:${secs.toString().padStart(2, '0')}s`;
-                }
-                return item.duration;
-              })()}
-            </Text>
-          </View>
-        </RipplePressable>
-      </View>
+      <BarcodeCardItem
+        item={item}
+        isSelected={isSelected(item.id)}
+        isSelectMode={isSelectMode}
+        onToggleSelect={onToggleSelect}
+        onEnterSelectMode={onEnterSelectMode}
+        onPlayVideo={onPlayVideo}
+        isDark={isDark}
+        themeCard={themeCard}
+        themeText={themeText}
+        themeSubText={themeSubText}
+        themeUncheckedCircleBorderColor={themeUncheckedCircleBorderColor}
+        pulseAnim={pulseAnim}
+      />
     );
   };
 
@@ -154,7 +237,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         <FlatList
           data={records}
           renderItem={renderItem}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => `${item.id}-${index}`}
           contentContainerStyle={styles.listContent}
         />
       )}
@@ -239,36 +322,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#94A3B8',
   },
-  tagRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginBottom: 10,
-  },
-  tag: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  tagPacking: {
-    backgroundColor: '#F59E0B',
-  },
-  tagUnboxing: {
-    backgroundColor: '#3B82F6',
-  },
-  tagBrandPH: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#000000',
-  },
-  tagBrandCollab: {
-    backgroundColor: '#EF4444',
-  },
-  tagText: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    fontFamily: 'sans-serif-medium',
-  },
+
   playIconContainer: {
     width: 48,
     height: 48,
@@ -307,5 +361,44 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#94A3B8',
     backgroundColor: 'transparent',
+  },
+  progressSection: {
+    marginTop: 6,
+  },
+  progressRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  progressLabel: {
+    fontSize: 13,
+    fontFamily: 'sans-serif-medium',
+    fontWeight: '500',
+  },
+  progressControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  iconControlBtn: {
+    padding: 4,
+    borderRadius: 4,
+  },
+  progressTrack: {
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  progressTrackLight: {
+    backgroundColor: '#E2E8F0',
+  },
+  progressTrackDark: {
+    backgroundColor: '#334155',
+  },
+  progressIndicator: {
+    height: '100%',
+    borderRadius: 3,
   },
 });

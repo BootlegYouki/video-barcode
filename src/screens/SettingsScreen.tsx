@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, ScrollView, StyleSheet, Alert, Switch, TouchableWithoutFeedback, Animated, LayoutChangeEvent } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Alert, Switch, TouchableWithoutFeedback, Animated, LayoutChangeEvent, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as FileSystem from 'expo-file-system/legacy';
 import { RipplePressable } from '../components/RipplePressable';
 import { MD3Button } from '../components/MD3Button';
 import { Storage } from '../utils/storage';
@@ -10,8 +11,6 @@ interface SettingsScreenProps {
   onClearHistory?: () => void;
   isDarkMode: boolean;
   onToggleDarkMode: (val: boolean) => void;
-  compressionQuality: 'low' | 'medium' | 'high';
-  onChangeCompressionQuality: (val: 'low' | 'medium' | 'high') => void;
 }
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
@@ -19,24 +18,96 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onClearHistory,
   isDarkMode,
   onToggleDarkMode,
-  compressionQuality,
-  onChangeCompressionQuality,
 }) => {
   const insets = useSafeAreaInsets();
   const [isDriveConnected, setIsDriveConnected] = useState(false);
+  const [publicDirUri, setPublicDirUri] = useState<string | null>(null);
 
   useEffect(() => {
-    const loadDriveState = async () => {
+    const loadSettings = async () => {
       const connected = await Storage.getDriveConnected();
       setIsDriveConnected(connected);
+
+      const publicDir = await Storage.getPublicDirectoryUri();
+      setPublicDirUri(publicDir);
     };
-    loadDriveState();
+    loadSettings();
   }, []);
 
   const handleToggleDrive = async () => {
-    const nextState = !isDriveConnected;
-    setIsDriveConnected(nextState);
-    await Storage.saveDriveConnected(nextState);
+    if (isDriveConnected) {
+      Alert.alert(
+        'Disconnect Google Drive',
+        'Are you sure you want to disconnect Google Drive? Videos will no longer be automatically backed up.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Disconnect',
+            style: 'destructive',
+            onPress: async () => {
+              setIsDriveConnected(false);
+              await Storage.saveDriveConnected(false);
+            }
+          }
+        ]
+      );
+    } else {
+      setIsDriveConnected(true);
+      await Storage.saveDriveConnected(true);
+    }
+  };
+
+  const handleSelectPublicDir = async () => {
+    try {
+      const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+      if (permissions.granted) {
+        await Storage.savePublicDirectoryUri(permissions.directoryUri);
+        setPublicDirUri(permissions.directoryUri);
+        Alert.alert('Folder Connected', 'Videos will now be exported to the selected folder and will be accessible in your Android Files manager.');
+      }
+    } catch (err) {
+      console.error('Failed to select public folder', err);
+      Alert.alert('Selection Failed', 'Failed to request folder permissions.');
+    }
+  };
+
+  const handleClearPublicDir = async () => {
+    Alert.alert(
+      'Disconnect Export Folder',
+      'Are you sure you want to disconnect the export folder? Newly processed videos will no longer be copied to your Files manager.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Disconnect',
+          style: 'destructive',
+          onPress: async () => {
+            await Storage.savePublicDirectoryUri(null);
+            setPublicDirUri(null);
+          }
+        }
+      ]
+    );
+  };
+
+  const getReadablePath = (uri: string) => {
+    try {
+      const decoded = decodeURIComponent(uri);
+      if (decoded.includes('primary:')) {
+        const parts = decoded.split('primary:');
+        if (parts.length > 1) {
+          const folderPath = parts[1].replace(/\//g, ' > ');
+          return `Internal Storage > ${folderPath}`;
+        }
+      }
+      const lastSlash = decoded.lastIndexOf('/');
+      if (lastSlash !== -1) {
+        const folderName = decoded.substring(lastSlash + 1).replace(/:/g, ' > ').replace(/\//g, ' > ');
+        return folderName || 'Connected Folder';
+      }
+      return 'Connected Folder';
+    } catch (err) {
+      return 'Connected Folder';
+    }
   };
 
 
@@ -57,35 +128,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         },
       ]
     );
-  };
-
-  type CompressionLevel = 'low' | 'medium' | 'high';
-
-  const COMPRESSION_LEVELS: { value: CompressionLevel; label: string }[] = [
-    { value: 'low',    label: 'Low'    },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high',   label: 'High'   },
-  ];
-
-  const tabIndex = COMPRESSION_LEVELS.findIndex(l => l.value === compressionQuality);
-  const tabAnim  = useRef(new Animated.Value(tabIndex)).current;
-  const [tabWidth, setTabWidth] = useState(0);
-
-  const handleCompressionChange = (val: 'low' | 'medium' | 'high') => {
-    const idx = COMPRESSION_LEVELS.findIndex(l => l.value === val);
-    Animated.spring(tabAnim, {
-      toValue: idx,
-      useNativeDriver: true,
-      tension: 70,
-      friction: 12,
-    }).start();
-    onChangeCompressionQuality(val);
-  };
-
-  const COMPRESSION_DESCRIPTIONS: Record<CompressionLevel, string> = {
-    low:    'Compressed video — noticeably smaller files',
-    medium: 'Balanced quality and storage use',
-    high:   'Full quality, no compression applied',
   };
 
   const isDark = isDarkMode;
@@ -119,67 +161,38 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </View>
       </View>
 
-      {/* Section: Video Settings */}
-      <Text style={[styles.sectionHeader, themeSectionHeader]}>Video Settings</Text>
-      <View style={[styles.cardList, themeCard]}>
-
-
-        {/* Video Quality — Tab Selector */}
-        <View style={styles.compressionRow}>
-          <View style={styles.compressionHeader}>
-            <Text style={[styles.rowTitle, themeText]}>Video Quality</Text>
-            <Text style={[styles.compressionDesc, themeSubText]}>
-              {COMPRESSION_DESCRIPTIONS[compressionQuality]}
-            </Text>
+      {/* Section: Video Settings (Android Only) */}
+      {Platform.OS === 'android' && (
+        <>
+          <Text style={[styles.sectionHeader, themeSectionHeader]}>Video Settings</Text>
+          <View style={[styles.cardList, themeCard]}>
+            <View style={styles.systemRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={styles.rowContent}>
+                  <Text style={[styles.rowTitle, themeText]}>Export to File Manager</Text>
+                  <Text style={[styles.rowSubtitle, themeSubText]}>
+                    {publicDirUri 
+                      ? 'Videos will save to public Files app' 
+                      : 'Choose a folder in your Files app'}
+                  </Text>
+                </View>
+                <MD3Button
+                  title={publicDirUri ? 'Disconnect' : 'Connect Folder'}
+                  onPress={publicDirUri ? handleClearPublicDir : handleSelectPublicDir}
+                  variant={publicDirUri ? 'outlined' : 'filled'}
+                  size="normal"
+                  isDarkMode={isDarkMode}
+                />
+              </View>
+              {publicDirUri && (
+                <Text style={[styles.compressionDesc, themeSubText, { marginTop: 8 }]} numberOfLines={1} ellipsizeMode="middle">
+                  Connected: {getReadablePath(publicDirUri)}
+                </Text>
+              )}
+            </View>
           </View>
-
-          <View
-            style={[styles.tabTrack, isDark ? styles.tabTrackDark : styles.tabTrackLight]}
-            onLayout={(e: LayoutChangeEvent) => setTabWidth(e.nativeEvent.layout.width / 3)}
-          >
-            {/* Sliding pill — sits behind labels */}
-            {tabWidth > 0 && (
-              <Animated.View
-                style={[
-                  styles.tabPill,
-                  isDark ? styles.tabPillDark : styles.tabPillLight,
-                  {
-                    width: tabWidth - 6,
-                    transform: [{
-                      translateX: tabAnim.interpolate({
-                        inputRange: [0, 1, 2],
-                        outputRange: [3, tabWidth + 3, tabWidth * 2 + 3],
-                      }),
-                    }],
-                  },
-                ]}
-              />
-            )}
-
-            {/* Labels on top */}
-            {COMPRESSION_LEVELS.map((level) => {
-              const isActive = compressionQuality === level.value;
-              return (
-                <TouchableWithoutFeedback
-                  key={level.value}
-                  onPress={() => handleCompressionChange(level.value)}
-                >
-                  <View style={styles.tabItem}>
-                    <Text style={[
-                      styles.tabLabel,
-                      isDark
-                        ? { color: isActive ? '#FFFFFF' : '#64748B' }
-                        : { color: isActive ? '#0F172A' : '#94A3B8' },
-                    ]}>
-                      {level.label}
-                    </Text>
-                  </View>
-                </TouchableWithoutFeedback>
-              );
-            })}
-          </View>
-        </View>
-      </View>
+        </>
+      )}
 
       {/* Section: System */}
       <Text style={[styles.sectionHeader, themeSectionHeader]}>System</Text>
@@ -207,7 +220,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         {/* Clear Scan History */}
         <RipplePressable onPress={handleClearHistoryPress} style={[styles.systemRowBordered, { borderBottomColor: themeBorderColor }]}>
           <Text style={[styles.rowTitle, { color: '#EF4444' }]}>Clear Scan History</Text>
-          <Text style={[styles.rowSubtitle, themeSubText]}>Permanently delete all scanned records and packing videos</Text>
+          <Text style={[styles.rowSubtitle, themeSubText]}>Permanently delete all scanned records and recorded videos</Text>
         </RipplePressable>
 
         {/* App Version Info */}
