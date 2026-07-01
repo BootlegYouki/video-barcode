@@ -98,6 +98,9 @@ jobs:
       - name: Expo Prebuild (Generate Android folder)
         run: npx expo prebuild --platform android --clean
 
+      - name: Configure ABI Splits for Android Build
+        run: node scripts/configure-splits.js
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
 
@@ -106,9 +109,11 @@ jobs:
           cd android
           ./gradlew assembleRelease
 
-      - name: Prepare APK Artifact
+      - name: Prepare APK Artifacts
         run: |
-          cp android/app/build/outputs/apk/release/app-release.apk VideoBarcode.apk
+          cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk VideoBarcode-arm64-v8a.apk
+          cp android/app/build/outputs/apk/release/app-armeabi-v7a-release.apk VideoBarcode-armeabi-v7a.apk
+          cp android/app/build/outputs/apk/release/app-x86_64-release.apk VideoBarcode-x86_64.apk
 
       - name: Create GitHub Release (Android)
         uses: softprops/action-gh-release@v2
@@ -119,9 +124,14 @@ jobs:
             ## Video Barcode v${{ needs.bump-version.outputs.version }} (Android Release)
             
             ### Android Installation
-            Download the `VideoBarcode.apk` file below and install it on your Android device.
+            Download the appropriate APK for your device:
+            * **`VideoBarcode-arm64-v8a.apk`** (Recommended - for modern 64-bit phones & tablets)
+            * **`VideoBarcode-armeabi-v7a.apk`** (For older 32-bit devices)
+            * **`VideoBarcode-x86_64.apk`** (For Android Emulators / ChromeOS devices)
           files: |
-            VideoBarcode.apk
+            VideoBarcode-arm64-v8a.apk
+            VideoBarcode-armeabi-v7a.apk
+            VideoBarcode-x86_64.apk
           draft: false
           prerelease: false
 
