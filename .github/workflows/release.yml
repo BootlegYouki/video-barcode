@@ -149,6 +149,18 @@ jobs:
       - name: Expo Prebuild (Generate iOS folder)
         run: npx expo prebuild --platform ios --clean --no-install
 
+      - name: Patch Podfile to use FFmpeg Kit mirror
+        run: |
+          node -e "
+            const fs = require('fs');
+            let content = fs.readFileSync('ios/Podfile', 'utf8');
+            const line = \"pod 'ffmpeg-kit-ios-full', :podspec => 'https://raw.githubusercontent.com/luthviar/ffmpeg-kit-ios-full/main/ffmpeg-kit-ios-full.podspec'\";
+            if (!content.includes(line)) {
+              content = content.replace('use_expo_modules!', line + '\n\n  use_expo_modules!');
+              fs.writeFileSync('ios/Podfile', content, 'utf8');
+            }
+          "
+
       - name: Install CocoaPods
         run: |
           cd ios
