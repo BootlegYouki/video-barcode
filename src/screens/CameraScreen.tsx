@@ -319,7 +319,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
                 ? "font='Helvetica'"
                 : "fontfile='/system/fonts/Roboto-Regular.ttf'";
               
-              const ffmpegCmd = `-y -i "${inputPath}" -vf "drawtext=text='%{pts\\:localtime\\:${startEpoch}\\:%Y-%m-%d %I\\\\:%M\\\\:%S %p}':x=24:y=24:fontsize=20:fontcolor=white:box=1:boxcolor=black@0.4:${fontParam}" -c:a copy "${outputPath}"`;
+              const ffmpegCmd = `-y -i "${inputPath}" -vf "drawtext=text='%{pts\\\\:localtime\\\\:${startEpoch}\\\\:%Y-%m-%d %I\\\\:%M\\\\:%S %p}':x=24:y=24:fontsize=20:fontcolor=white:box=1:boxcolor=black@0.4:${fontParam}" -c:a copy "${outputPath}"`;
               
               const session = await FFmpegKit.execute(ffmpegCmd);
               const returnCode = await session.getReturnCode();
