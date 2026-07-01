@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, useWindowDimensions, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { RipplePressable } from '../components/RipplePressable';
@@ -8,6 +8,12 @@ import Animated, { ZoomIn, ZoomOut, SlideInUp, FadeIn, FadeOut, useSharedValue, 
 import { BlurView } from 'expo-blur';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system';
+import { FFmpegKit, FFmpegKitConfig } from 'ffmpeg-kit-react-native';
+
+if (Platform.OS === 'ios') {
+  FFmpegKitConfig.setFontDirectoryList(["/System/Library/Fonts", "/System/Library/Fonts/Cache"]);
+}
 
 interface CameraScreenProps {
   onClose: () => void;
@@ -75,6 +81,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
   const viewfinderRef = useRef<View>(null);
   const [viewfinderRect, setViewfinderRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const scanStateRef = useRef(scanState);
+  const recordingStartEpochRef = useRef<number>(0);
 
   // Keep scanStateRef in sync to avoid stale closures in timers
   useEffect(() => { scanStateRef.current = scanState; }, [scanState]);
@@ -289,6 +296,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
       if (cameraRef.current) {
         try {
           const recordQuality = compressionQuality === 'high' ? '1080p' : compressionQuality === 'medium' ? '720p' : '480p';
+          recordingStartEpochRef.current = Math.floor(Date.now() / 1000);
           const recordingPromise = cameraRef.current.recordAsync({
             maxDuration: 60,
             quality: recordQuality,
@@ -298,8 +306,35 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
 
           const video = await recordingPromise;
           if (video && video.uri) {
+            setScanState('saving');
             const durationStr = `0:${timerValRef.current.toString().padStart(2, '0')}s`;
-            setRecordedVideoUri(video.uri);
+            
+            try {
+              const outputUri = FileSystem.cacheDirectory + 'engraved_' + Date.now() + '.mp4';
+              const inputPath = video.uri.replace('file://', '');
+              const outputPath = outputUri.replace('file://', '');
+              const startEpoch = recordingStartEpochRef.current;
+              
+              const fontParam = Platform.OS === 'ios'
+                ? "font='Helvetica'"
+                : "fontfile='/system/fonts/Roboto-Regular.ttf'";
+              
+              const ffmpegCmd = `-y -i "${inputPath}" -vf "drawtext=text='%{pts\\:localtime\\:${startEpoch}\\:%Y-%m-%d %I\\\\:%M\\\\:%S %p}':x=24:y=24:fontsize=20:fontcolor=white:box=1:boxcolor=black@0.4:${fontParam}" -c:a copy "${outputPath}"`;
+              
+              const session = await FFmpegKit.execute(ffmpegCmd);
+              const returnCode = await session.getReturnCode();
+              
+              if (returnCode.isValueSuccess()) {
+                setRecordedVideoUri(outputUri);
+              } else {
+                console.warn('FFmpeg failed, falling back to raw video:', await session.getFailStackTrace());
+                setRecordedVideoUri(video.uri);
+              }
+            } catch (ffmpegErr) {
+              console.error('FFmpeg timestamp engraving error:', ffmpegErr);
+              setRecordedVideoUri(video.uri);
+            }
+            
             setRecordedDuration(durationStr);
             setScanState('review');
           }
@@ -425,11 +460,6 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({ onClose, onSaveSessi
                     allowsPictureInPicture={false}
                     nativeControls={true}
                   />
-                  {currentDateTime ? (
-                    <View style={styles.timestampOverlayPlayback}>
-                      <Text style={styles.timestampOverlayText}>{currentDateTime}</Text>
-                    </View>
-                  ) : null}
                 </>
               ) : (
                 <ActivityIndicator size="large" color="#FFFFFF" style={{ padding: 40 }} />

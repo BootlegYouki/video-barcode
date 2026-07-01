@@ -9,6 +9,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@config-plugins/ffmpeg-kit-react-native": "^9.0.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-google-signin/google-signin": "^16.1.2",
     "expo": "~54.0.34",
@@ -19,6 +20,7 @@
     "expo-image-manipulator": "~14.0.8",
     "expo-status-bar": "~3.0.9",
     "expo-video": "~3.0.16",
+    "ffmpeg-kit-react-native": "^6.0.2",
     "phosphor-react-native": "^3.0.6",
     "react": "19.1.0",
     "react-native": "0.81.5",

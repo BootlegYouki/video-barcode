@@ -47,7 +47,13 @@
       "react-native-compressor",
       "@react-native-google-signin/google-signin",
       "./plugins/withModularHeaders",
-      "expo-video"
+      "expo-video",
+      [
+        "@config-plugins/ffmpeg-kit-react-native",
+        {
+          "package": "full-gpl"
+        }
+      ]
     ]
   }
 }
