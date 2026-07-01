@@ -8,7 +8,7 @@ import Animated, { ZoomIn, ZoomOut, SlideInUp, FadeIn, FadeOut, useSharedValue, 
 import { BlurView } from 'expo-blur';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as ImageManipulator from 'expo-image-manipulator';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { FFmpegKit, FFmpegKitConfig } from 'ffmpeg-kit-react-native';
 
 if (Platform.OS === 'ios') {
