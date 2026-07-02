@@ -1,4 +1,4 @@
-name: Release Video Barcode (Android & iOS)
+name: Release Marigold (Android & iOS)
 
 on:
   workflow_dispatch:

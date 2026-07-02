@@ -1,4 +1,4 @@
-name: Build Dev Client (Android & iOS)
+name: Build Marigold Dev Client (Android & iOS)
 
 on:
   workflow_dispatch:
@@ -57,7 +57,7 @@ jobs:
           cd android
           ./gradlew assembleDebug
 
-       - name: Prepare APK Artifact
+      - name: Prepare APK Artifact
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk Marigold-DevClient.apk
 
