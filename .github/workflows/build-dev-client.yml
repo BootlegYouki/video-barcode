@@ -57,32 +57,32 @@ jobs:
           cd android
           ./gradlew assembleDebug
 
-      - name: Prepare APK Artifact
+       - name: Prepare APK Artifact
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk VideoBarcode-DevClient.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk Marigold-DevClient.apk
 
       - name: Create/Update GitHub Release for Dev Client
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}-devclient
-          name: Video Barcode Dev Client v${{ env.VERSION }}
+          name: Marigold Dev Client v${{ env.VERSION }}
           body: |
-            ## Video Barcode Development Client v${{ env.VERSION }}
+            ## Marigold Development Client v${{ env.VERSION }}
             
             This release contains development client builds preloaded with native libraries matching this project's dependencies.
             
             ### iOS Installation (Sideload via SideStore / AltStore / Sideloadly)
-            Download `VideoBarcode-DevClient.ipa` below and sideload it.
+            Download `Marigold-DevClient.ipa` below and sideload it.
             
             ### Android Installation
-            Download `VideoBarcode-DevClient.apk` below and install it directly on your Android device.
+            Download `Marigold-DevClient.apk` below and install it directly on your Android device.
             
             ### How to use:
             1. Open the Dev Client app on your device.
             2. Run `npm run start` or `npx expo start` in your local project directory.
             3. Connect by scanning the QR code or entering your local bundler URL (e.g. `exp://192.168.X.X:8081`) inside the app.
           files: |
-            VideoBarcode-DevClient.apk
+            Marigold-DevClient.apk
           draft: false
           prerelease: true
 
@@ -156,8 +156,8 @@ jobs:
         run: |
           set -o pipefail
           cd ios
-          xcodebuild -workspace VideoBarcode.xcworkspace \
-            -scheme VideoBarcode \
+          xcodebuild -workspace Marigold.xcworkspace \
+            -scheme Marigold \
             -configuration Debug \
             -sdk iphoneos \
             -derivedDataPath build \
@@ -170,30 +170,30 @@ jobs:
           cd ios/build/Build/Products/Debug-iphoneos
           mkdir Payload
           mv *.app Payload/
-          zip -qr ../../../../../VideoBarcode-DevClient.ipa Payload
+          zip -qr ../../../../../Marigold-DevClient.ipa Payload
 
       - name: Create/Update GitHub Release for Dev Client
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}-devclient
-          name: Video Barcode Dev Client v${{ env.VERSION }}
+          name: Marigold Dev Client v${{ env.VERSION }}
           body: |
-            ## Video Barcode Development Client v${{ env.VERSION }}
+            ## Marigold Development Client v${{ env.VERSION }}
             
             This release contains development client builds preloaded with native libraries matching this project's dependencies.
             
             ### iOS Installation (Sideload via SideStore / AltStore / Sideloadly)
-            Download `VideoBarcode-DevClient.ipa` below and sideload it.
+            Download `Marigold-DevClient.ipa` below and sideload it.
             
             ### Android Installation
-            Download `VideoBarcode-DevClient.apk` below and install it directly on your Android device.
+            Download `Marigold-DevClient.apk` below and install it directly on your Android device.
             
             ### How to use:
             1. Open the Dev Client app on your device.
             2. Run `npm run start` or `npx expo start` in your local project directory.
             3. Connect by scanning the QR code or entering your local bundler URL (e.g. `exp://192.168.X.X:8081`) inside the app.
           files: |
-            VideoBarcode-DevClient.ipa
+            Marigold-DevClient.ipa
           draft: false
           prerelease: true
 

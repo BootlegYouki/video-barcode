@@ -81,7 +81,7 @@ export async function checkForUpdates(manual: boolean = false) {
       );
     } else {
       if (manual) {
-        Alert.alert('Up to Date', `Video Barcode is already running the latest version (${CURRENT_VERSION}).`);
+        Alert.alert('Up to Date', `Marigold is already running the latest version (${CURRENT_VERSION}).`);
       }
     }
   } catch (error: any) {

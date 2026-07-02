@@ -143,7 +143,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
     <View style={styles.container}>
       {/* Top Header */}
       <View style={styles.header}>
-        <Text style={styles.headerText}>VIDEO BARCODE</Text>
+        <Text style={styles.headerText}>MARIGOLD</Text>
       </View>
 
       {/* Slide Content Pager */}

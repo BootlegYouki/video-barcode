@@ -117,27 +117,27 @@ jobs:
 
       - name: Prepare APK Artifacts
         run: |
-          cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk VideoBarcode-arm64-v8a.apk
-          cp android/app/build/outputs/apk/release/app-armeabi-v7a-release.apk VideoBarcode-armeabi-v7a.apk
-          cp android/app/build/outputs/apk/release/app-x86_64-release.apk VideoBarcode-x86_64.apk
+          cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk Marigold-arm64-v8a.apk
+          cp android/app/build/outputs/apk/release/app-armeabi-v7a-release.apk Marigold-armeabi-v7a.apk
+          cp android/app/build/outputs/apk/release/app-x86_64-release.apk Marigold-x86_64.apk
 
       - name: Create GitHub Release (Android)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.bump-version.outputs.version }}-android
-          name: Video Barcode v${{ needs.bump-version.outputs.version }} (Android)
+          name: Marigold v${{ needs.bump-version.outputs.version }} (Android)
           body: |
-            ## Video Barcode v${{ needs.bump-version.outputs.version }} (Android Release)
+            ## Marigold v${{ needs.bump-version.outputs.version }} (Android Release)
             
             ### Android Installation
             Download the appropriate APK for your device:
-            * **`VideoBarcode-arm64-v8a.apk`** (Recommended - for modern 64-bit phones & tablets)
-            * **`VideoBarcode-armeabi-v7a.apk`** (For older 32-bit devices)
-            * **`VideoBarcode-x86_64.apk`** (For Android Emulators / ChromeOS devices)
+            * **`Marigold-arm64-v8a.apk`** (Recommended - for modern 64-bit phones & tablets)
+            * **`Marigold-armeabi-v7a.apk`** (For older 32-bit devices)
+            * **`Marigold-x86_64.apk`** (For Android Emulators / ChromeOS devices)
           files: |
-            VideoBarcode-arm64-v8a.apk
-            VideoBarcode-armeabi-v7a.apk
-            VideoBarcode-x86_64.apk
+            Marigold-arm64-v8a.apk
+            Marigold-armeabi-v7a.apk
+            Marigold-x86_64.apk
           draft: false
           prerelease: false
 
@@ -191,8 +191,8 @@ jobs:
       - name: Build Unsigned App
         run: |
           cd ios
-          xcodebuild -workspace VideoBarcode.xcworkspace \
-            -scheme VideoBarcode \
+          xcodebuild -workspace Marigold.xcworkspace \
+            -scheme Marigold \
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath build \
@@ -204,8 +204,8 @@ jobs:
         run: |
           cd ios/build/Build/Products/Release-iphoneos
           mkdir Payload
-          mv VideoBarcode.app Payload/
-          zip -qr ../../../../../VideoBarcode.ipa Payload
+          mv Marigold.app Payload/
+          zip -qr ../../../../../Marigold.ipa Payload
 
       - name: Generate SideStore source.json
         run: |
@@ -213,17 +213,17 @@ jobs:
           REPO="${{ github.repository }}"
           cat > sidestore.json << EOF
           {
-            "name": "Video Barcode",
-            "identifier": "com.bootlegyouki.videobarcode.source",
+            "name": "Marigold",
+            "identifier": "com.bootlegyouki.marigold.source",
             "apps": [
               {
-                "name": "Video Barcode",
-                "bundleIdentifier": "com.bootlegyouki.videobarcode",
+                "name": "Marigold",
+                "bundleIdentifier": "com.bootlegyouki.marigold",
                 "developerName": "BootlegYouki",
                 "version": "${{ needs.bump-version.outputs.version }}",
                 "versionDate": "${DATE}",
-                "downloadURL": "https://github.com/${REPO}/releases/download/v${{ needs.bump-version.outputs.version }}-ios/VideoBarcode.ipa",
-                "localizedDescription": "Video barcode scanner app.",
+                "downloadURL": "https://github.com/${REPO}/releases/download/v${{ needs.bump-version.outputs.version }}-ios/Marigold.ipa",
+                "localizedDescription": "Marigold barcode scanner app.",
                 "iconURL": "https://raw.githubusercontent.com/${REPO}/main/assets/icon.png",
                 "tintColor": "4F46E5",
                 "size": 0
@@ -236,12 +236,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.bump-version.outputs.version }}-ios
-          name: Video Barcode v${{ needs.bump-version.outputs.version }} (iOS)
+          name: Marigold v${{ needs.bump-version.outputs.version }} (iOS)
           body: |
-            ## Video Barcode v${{ needs.bump-version.outputs.version }} (iOS Release)
+            ## Marigold v${{ needs.bump-version.outputs.version }} (iOS Release)
             
             ### iOS Sideloading (SideStore / Sideloadly / AltStore)
-            Download `VideoBarcode.ipa` below and sideload it.
+            Download `Marigold.ipa` below and sideload it.
             
             ### SideStore Source URL
             Add this source to SideStore for auto-updates:
@@ -249,7 +249,7 @@ jobs:
             https://raw.githubusercontent.com/${{ github.repository }}/main/sidestore.json
             ```
           files: |
-            VideoBarcode.ipa
+            Marigold.ipa
             sidestore.json
           draft: false
           prerelease: false
