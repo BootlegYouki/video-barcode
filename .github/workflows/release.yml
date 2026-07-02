@@ -164,7 +164,7 @@ jobs:
           node -e "
             const fs = require('fs');
             let content = fs.readFileSync('ios/Podfile', 'utf8');
-            const line = \"pod 'ffmpeg-kit-ios-full', :podspec => 'https://raw.githubusercontent.com/luthviar/ffmpeg-kit-ios-full/main/ffmpeg-kit-ios-full.podspec'\";
+            const line = \"pod 'ffmpeg-kit-ios-video', :podspec => 'https://raw.githubusercontent.com/luthviar/ffmpeg-kit-ios-video/main/ffmpeg-kit-ios-video.podspec'\";
             if (!content.includes(line)) {
               content = content.replace('use_expo_modules!', line + '\n\n  use_expo_modules!');
               fs.writeFileSync('ios/Podfile', content, 'utf8');
