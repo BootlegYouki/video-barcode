@@ -14,6 +14,8 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { FFmpegKit, FFmpegKitConfig, ReturnCode } from 'ffmpeg-kit-react-native';
 
 import { Storage } from '../utils/storage';
+import { UploadQueue } from '../utils/uploadQueue';
+import { UploadService } from '../utils/uploadService';
 
 import * as FileSystem from 'expo-file-system/legacy';
 import { Video as VideoCompressor } from 'react-native-compressor';
@@ -193,6 +195,8 @@ export const MainScreen: React.FC<MainScreenProps> = ({
         setRecords(cleaned);
       }
 
+      // Trigger the background upload queue watcher on startup
+      UploadService.triggerUpload();
     };
     loadData();
   }, []);
@@ -261,10 +265,11 @@ export const MainScreen: React.FC<MainScreenProps> = ({
         if (returnCode.isValueSuccess()) {
           // Calculate the correct file size
           let sizeStr = '0 B';
+          let sizeInBytes = 0;
           try {
             const fileInfo = await FileSystem.getInfoAsync(outputUri);
             if (fileInfo.exists && fileInfo.size !== undefined) {
-              const sizeInBytes = fileInfo.size;
+              sizeInBytes = fileInfo.size;
               if (sizeInBytes < 1024 * 1024) {
                 sizeStr = `${(sizeInBytes / 1024).toFixed(1)} KB`;
               } else {
@@ -272,6 +277,10 @@ export const MainScreen: React.FC<MainScreenProps> = ({
               }
             }
           } catch (_) {}
+
+          // Enqueue video for background upload to Google Drive
+          UploadQueue.enqueue(record.id, record.fileName, outputUri, sizeInBytes);
+          UploadService.triggerUpload();
 
           // Clean up the temporary raw video from disk
           if (record.rawVideoUri) {
@@ -759,7 +768,23 @@ export const MainScreen: React.FC<MainScreenProps> = ({
         <BottomNavigator
           activeTab={activeTab}
           onTabChange={setActiveTab}
-          onCameraPress={() => setShowCamera(true)}
+          onCameraPress={async () => {
+            try {
+              const free = await FileSystem.getFreeDiskStorageAsync();
+              const minRequiredSpace = 200 * 1024 * 1024; // 200 MB threshold
+              if (free < minRequiredSpace) {
+                Alert.alert(
+                  'Local Storage Full',
+                  'Your local storage is almost full (less than 200 MB remaining). Please free up space before recording new videos.',
+                  [{ text: 'OK' }]
+                );
+                return;
+              }
+            } catch (err) {
+              console.error('Failed to check storage space:', err);
+            }
+            setShowCamera(true);
+          }}
           isDarkMode={isDarkMode}
         />
       )}

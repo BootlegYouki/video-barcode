@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Video Barcode",
-    "slug": "video-barcode",
+    "name": "Marigold",
+    "slug": "marigold",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.bootlegyouki.videobarcode",
+      "bundleIdentifier": "com.bootlegyouki.marigold",
       "infoPlist": {
         "UIFileSharingEnabled": true,
         "LSSupportsOpeningDocumentsInPlace": true
@@ -30,7 +30,7 @@
       "permissions": [
         "android.permission.CAMERA"
       ],
-      "package": "com.bootlegyouki.videobarcode"
+      "package": "com.bootlegyouki.marigold"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -45,7 +45,12 @@
         }
       ],
       "react-native-compressor",
-      "@react-native-google-signin/google-signin",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.407345233459-aubvh9omi7fcvkm938me74ovcarscbbr"
+        }
+      ],
       "./plugins/withModularHeaders",
       "expo-video",
       [

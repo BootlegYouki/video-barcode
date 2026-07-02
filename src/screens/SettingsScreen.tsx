@@ -5,6 +5,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { RipplePressable } from '../components/RipplePressable';
 import { MD3Button } from '../components/MD3Button';
 import { Storage } from '../utils/storage';
+import { GoogleDriveService } from '../utils/googleDrive';
 
 interface SettingsScreenProps {
   onResetOnboarding?: () => void;
@@ -22,6 +23,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const insets = useSafeAreaInsets();
   const [isDriveConnected, setIsDriveConnected] = useState(false);
   const [publicDirUri, setPublicDirUri] = useState<string | null>(null);
+  const [phoneStorage, setPhoneStorage] = useState<{ free: number; total: number } | null>(null);
+  const [cloudStorage, setCloudStorage] = useState<{ used: number; total: number } | null>({
+    used: 2.7 * 1024 * 1024 * 1024, // Mock 2.7 GB
+    total: 15 * 1024 * 1024 * 1024, // Mock 15 GB Google Drive tier
+  });
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -30,6 +36,26 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
       const publicDir = await Storage.getPublicDirectoryUri();
       setPublicDirUri(publicDir);
+
+      try {
+        const free = await FileSystem.getFreeDiskStorageAsync();
+        const total = await FileSystem.getTotalDiskCapacityAsync();
+        setPhoneStorage({ free, total });
+      } catch (err) {
+        console.error('Failed to get disk storage info:', err);
+      }
+
+      if (connected) {
+        try {
+          const accessToken = await GoogleDriveService.getAccessToken();
+          if (accessToken) {
+            const quota = await GoogleDriveService.getStorageQuota(accessToken);
+            if (quota) setCloudStorage(quota);
+          }
+        } catch (err) {
+          console.error('Failed to get cloud storage quota:', err);
+        }
+      }
     };
     loadSettings();
   }, []);
@@ -45,6 +71,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             text: 'Disconnect',
             style: 'destructive',
             onPress: async () => {
+              try {
+                await GoogleDriveService.signOut();
+              } catch (_) {}
               setIsDriveConnected(false);
               await Storage.saveDriveConnected(false);
             }
@@ -52,8 +81,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         ]
       );
     } else {
-      setIsDriveConnected(true);
-      await Storage.saveDriveConnected(true);
+      const success = await GoogleDriveService.signIn();
+      if (success) {
+        setIsDriveConnected(true);
+        await Storage.saveDriveConnected(true);
+        try {
+          const accessToken = await GoogleDriveService.getAccessToken();
+          if (accessToken) {
+            const quota = await GoogleDriveService.getStorageQuota(accessToken);
+            if (quota) setCloudStorage(quota);
+          }
+        } catch (err) {
+          console.error('Failed to get cloud storage quota:', err);
+        }
+      } else {
+        Alert.alert('Connection Failed', 'Failed to connect to Google Drive.');
+      }
     }
   };
 
@@ -138,6 +181,19 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const themeSubText = isDark ? { color: '#94A3B8' } : { color: '#64748B' };
   const themeBorderColor = isDark ? '#334155' : '#E2E8F0';
 
+  const formatBytes = (bytes: number) => {
+    if (!bytes || bytes <= 0) return '0 GB';
+    const gb = bytes / (1024 * 1024 * 1024);
+    return `${gb.toFixed(1)} GB`;
+  };
+
+  const phoneUsed = phoneStorage ? phoneStorage.total - phoneStorage.free : 0;
+  const phonePercent = phoneStorage ? Math.round((phoneUsed / phoneStorage.total) * 100) : 0;
+  
+  const cloudUsed = cloudStorage ? cloudStorage.used : 0;
+  const cloudTotal = cloudStorage ? cloudStorage.total : 0;
+  const cloudPercent = cloudTotal > 0 ? Math.round((cloudUsed / cloudTotal) * 100) : 0;
+
   return (
     <ScrollView style={[styles.container, themeContainer, { paddingTop: insets.top + 16 }]} contentContainerStyle={styles.scrollContent}>
       {/* Section: Integrations */}
@@ -158,6 +214,54 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             style={styles.connectBtn}
             isDarkMode={isDarkMode}
           />
+        </View>
+      </View>
+
+      {/* Section: Storage */}
+      <Text style={[styles.sectionHeader, themeSectionHeader]}>Storage</Text>
+      <View style={[styles.cardList, themeCard]}>
+        {/* Local Storage */}
+        <View style={[styles.systemRowBordered, { borderBottomColor: themeBorderColor }]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={[styles.rowTitle, themeText]}>Local Storage</Text>
+            {phoneStorage ? (
+              <Text style={[styles.rowSubtitle, themeSubText]}>
+                {formatBytes(phoneUsed)} of {formatBytes(phoneStorage.total)} used
+              </Text>
+            ) : (
+              <Text style={[styles.rowSubtitle, themeSubText]}>Calculating...</Text>
+            )}
+          </View>
+          {phoneStorage && (
+            <View style={{ marginTop: 12 }}>
+              <View style={[styles.progressBarBg, isDark ? styles.progressBarBgDark : styles.progressBarBgLight]}>
+                <View style={[styles.progressBarFill, { width: `${phonePercent}%`, backgroundColor: phonePercent > 90 ? '#EF4444' : '#10B981' }]} />
+              </View>
+              <Text style={[styles.progressBarText, themeSubText]}>{phonePercent}% Used</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Cloud Storage */}
+        <View style={styles.systemRow}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={[styles.rowTitle, themeText]}>Cloud Storage</Text>
+            {isDriveConnected ? (
+              <Text style={[styles.rowSubtitle, themeSubText]}>
+                {formatBytes(cloudUsed)} of {formatBytes(cloudTotal)} used
+              </Text>
+            ) : (
+              <Text style={[styles.rowSubtitle, themeSubText]}>Not Connected</Text>
+            )}
+          </View>
+          {isDriveConnected && (
+            <View style={{ marginTop: 12 }}>
+              <View style={[styles.progressBarBg, isDark ? styles.progressBarBgDark : styles.progressBarBgLight]}>
+                <View style={[styles.progressBarFill, { width: `${cloudPercent}%`, backgroundColor: '#3B82F6' }]} />
+              </View>
+              <Text style={[styles.progressBarText, themeSubText]}>{cloudPercent}% Used</Text>
+            </View>
+          )}
         </View>
       </View>
 
@@ -372,5 +476,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 32,
     fontFamily: 'sans-serif',
+  },
+  progressBarBg: {
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  progressBarBgLight: {
+    backgroundColor: '#E2E8F0',
+  },
+  progressBarBgDark: {
+    backgroundColor: '#334155',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  progressBarText: {
+    fontSize: 12,
+    marginTop: 6,
+    textAlign: 'right',
   },
 });

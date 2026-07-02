@@ -37,6 +37,12 @@ jobs:
             fs.appendFileSync(process.env.GITHUB_ENV, 'VERSION=' + version + '\n');
           "
 
+      - name: Create Env File
+        run: |
+          echo "EXPO_PUBLIC_WEB_CLIENT=${{ secrets.EXPO_PUBLIC_WEB_CLIENT }}" >> .env
+          echo "EXPO_PUBLIC_ANDROID_CLIENT=${{ secrets.EXPO_PUBLIC_ANDROID_CLIENT }}" >> .env
+          echo "EXPO_PUBLIC_IOS_CLIENT=${{ secrets.EXPO_PUBLIC_IOS_CLIENT }}" >> .env
+
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
@@ -111,6 +117,12 @@ jobs:
             const fs = require('fs');
             fs.appendFileSync(process.env.GITHUB_ENV, 'VERSION=' + version + '\n');
           "
+
+      - name: Create Env File
+        run: |
+          echo "EXPO_PUBLIC_WEB_CLIENT=${{ secrets.EXPO_PUBLIC_WEB_CLIENT }}" >> .env
+          echo "EXPO_PUBLIC_ANDROID_CLIENT=${{ secrets.EXPO_PUBLIC_ANDROID_CLIENT }}" >> .env
+          echo "EXPO_PUBLIC_IOS_CLIENT=${{ secrets.EXPO_PUBLIC_IOS_CLIENT }}" >> .env
 
       - name: Install dependencies
         run: |

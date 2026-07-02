@@ -62,3 +62,5 @@ Desktop.ini
 # AI/Assistant cache and configurations
 .claude/
 .agents/
+
+docs/
